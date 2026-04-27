@@ -8,6 +8,7 @@ retrieval on the `mteb/scifact` dataset.
 - Loads SciFact queries, corpus, and qrels from Hugging Face
 - Benchmarks a shortlist of bi-encoder retrieval models
 - Saves per-model rankings and aggregate metrics
+- Writes per-model status files and failure metadata
 - Generates plots and a markdown report for comparison
 
 ## Default model shortlist
@@ -37,6 +38,9 @@ python benchmarks/scifact/run_benchmark.py
 Colab notebook entry point:
 
 `benchmarks/scifact/scifact_benchmark_colab.ipynb`
+
+The notebook runs one model per subprocess, writes per-model logs, and
+aggregates successful runs so Colab OOMs do not discard all results.
 
 Benchmark a smaller subset first:
 

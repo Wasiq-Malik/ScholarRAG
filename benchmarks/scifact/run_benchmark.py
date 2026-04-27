@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from models import (
 
 def write_summary_csv(rows: list[dict[str, object]], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        return
     with output_path.open("w", newline="") as handle:
         fieldnames = list(rows[0].keys())
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -96,6 +99,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable few-shot examples for bge-en-icl query formatting.",
     )
+    parser.add_argument(
+        "--show-progress",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show per-batch progress bars during encoding.",
+    )
+    parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Write failure metadata and continue with remaining models instead of stopping.",
+    )
     return parser.parse_args()
 
 
@@ -130,28 +144,56 @@ def main() -> None:
     (run_dir / "config.json").write_text(json.dumps(config, indent=2))
 
     summary_rows: list[dict[str, object]] = []
+    failures: list[dict[str, object]] = []
     for model_key in args.models:
         spec = MODEL_SPECS[model_key]
-        print(f"Benchmarking {model_key} ({spec.model_id})")
+        print(f"\n=== Benchmarking {model_key} ({spec.model_id}) ===", flush=True)
+        model_status_path = run_dir / f"{model_key}_status.json"
+        model_status = {
+            "model": model_key,
+            "model_id": spec.model_id,
+            "started_at": datetime.now().isoformat(),
+            "status": "running",
+        }
+        model_status_path.write_text(json.dumps(model_status, indent=2))
 
-        encoder = build_encoder(
-            model_key,
-            device=device,
-            batch_size=args.batch_size,
-            dtype_name=args.dtype,
-            bge_use_examples=args.bge_use_examples,
-        )
+        encoder = None
         try:
+            encoder = build_encoder(
+                model_key,
+                device=device,
+                batch_size=args.batch_size,
+                dtype_name=args.dtype,
+                bge_use_examples=args.bge_use_examples,
+                show_progress=args.show_progress,
+            )
             start_time = time.perf_counter()
+            print(
+                f"[{model_key}] Encoding {len(data.corpus_ids)} documents with batch_size="
+                f"{encoder.batch_size} on {device}",
+                flush=True,
+            )
             doc_start = time.perf_counter()
             corpus_embeddings = encoder.encode_documents(data.corpus_texts)
             doc_seconds = time.perf_counter() - doc_start
+            print(
+                f"[{model_key}] Document encoding complete in {doc_seconds:.2f}s "
+                f"({len(data.corpus_ids) / max(doc_seconds, 1e-6):.2f} docs/s)",
+                flush=True,
+            )
 
+            print(f"[{model_key}] Encoding {len(data.query_ids)} queries", flush=True)
             query_start = time.perf_counter()
             query_embeddings = encoder.encode_queries(data.query_texts)
             query_seconds = time.perf_counter() - query_start
+            print(
+                f"[{model_key}] Query encoding complete in {query_seconds:.2f}s "
+                f"({len(data.query_ids) / max(query_seconds, 1e-6):.2f} queries/s)",
+                flush=True,
+            )
 
             rankings_path = run_dir / "rankings" / f"{model_key}.csv"
+            print(f"[{model_key}] Scoring and writing rankings to {rankings_path}", flush=True)
             metrics = score_and_write_rankings(
                 model_name=model_key,
                 query_ids=data.query_ids,
@@ -163,6 +205,11 @@ def main() -> None:
                 top_k_to_write=args.top_k,
             )
             total_seconds = time.perf_counter() - start_time
+            print(
+                f"[{model_key}] Metrics: nDCG@10={metrics.ndcg_at_10:.4f}, "
+                f"MRR@10={metrics.mrr_at_10:.4f}, Recall@100={metrics.recall_at_100:.4f}",
+                flush=True,
+            )
 
             summary_rows.append(
                 {
@@ -188,19 +235,53 @@ def main() -> None:
                     "notes": spec.notes,
                 }
             )
+            write_summary_csv(summary_rows, run_dir / "summary.csv")
+            (run_dir / "summary.json").write_text(json.dumps(summary_rows, indent=2))
+            model_status.update(
+                {
+                    "status": "completed",
+                    "completed_at": datetime.now().isoformat(),
+                    "total_runtime_seconds": total_seconds,
+                    "summary_row": summary_rows[-1],
+                }
+            )
+            model_status_path.write_text(json.dumps(model_status, indent=2))
+        except Exception as exc:
+            failure = {
+                "model": model_key,
+                "model_id": spec.model_id,
+                "status": "failed",
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "traceback": traceback.format_exc(),
+                "failed_at": datetime.now().isoformat(),
+            }
+            failures.append(failure)
+            model_status.update(failure)
+            model_status_path.write_text(json.dumps(model_status, indent=2))
+            (run_dir / "failures.json").write_text(json.dumps(failures, indent=2))
+            print(f"[{model_key}] FAILED: {type(exc).__name__}: {exc}", flush=True)
+            print(failure["traceback"], flush=True)
+            if not args.continue_on_error:
+                raise
         finally:
-            encoder.unload()
+            if encoder is not None:
+                encoder.unload()
 
     if not summary_rows:
         raise ValueError("No benchmark results were produced.")
 
     write_summary_csv(summary_rows, run_dir / "summary.csv")
     (run_dir / "summary.json").write_text(json.dumps(summary_rows, indent=2))
+    if failures:
+        (run_dir / "failures.json").write_text(json.dumps(failures, indent=2))
     report_path = build_report(run_dir)
 
     print(f"\nFinished benchmark run.")
     print(f"Summary: {run_dir / 'summary.csv'}")
     print(f"Report:  {report_path}")
+    if failures:
+        print(f"Failures: {run_dir / 'failures.json'}")
 
 
 if __name__ == "__main__":

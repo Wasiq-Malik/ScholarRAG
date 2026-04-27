@@ -55,30 +55,38 @@ def build_report(run_dir: Path) -> Path:
         raise ValueError("No rows found in summary.csv")
 
     plots_dir = run_dir / "plots"
-    plot_metric(
-        rows,
-        metric_key="ndcg_at_10",
-        title="SciFact nDCG@10",
-        output_path=plots_dir / "ndcg_at_10.png",
-    )
-    plot_metric(
-        rows,
-        metric_key="mrr_at_10",
-        title="SciFact MRR@10",
-        output_path=plots_dir / "mrr_at_10.png",
-    )
-    plot_metric(
-        rows,
-        metric_key="recall_at_100",
-        title="SciFact Recall@100",
-        output_path=plots_dir / "recall_at_100.png",
-    )
-    plot_metric(
-        rows,
-        metric_key="total_runtime_seconds",
-        title="Total Runtime (seconds)",
-        output_path=plots_dir / "runtime_seconds.png",
-    )
+    plot_paths: list[str] = []
+    if len(rows) > 1:
+        plot_metric(
+            rows,
+            metric_key="ndcg_at_10",
+            title="SciFact nDCG@10",
+            output_path=plots_dir / "ndcg_at_10.png",
+        )
+        plot_metric(
+            rows,
+            metric_key="mrr_at_10",
+            title="SciFact MRR@10",
+            output_path=plots_dir / "mrr_at_10.png",
+        )
+        plot_metric(
+            rows,
+            metric_key="recall_at_100",
+            title="SciFact Recall@100",
+            output_path=plots_dir / "recall_at_100.png",
+        )
+        plot_metric(
+            rows,
+            metric_key="total_runtime_seconds",
+            title="Total Runtime (seconds)",
+            output_path=plots_dir / "runtime_seconds.png",
+        )
+        plot_paths = [
+            "plots/ndcg_at_10.png",
+            "plots/mrr_at_10.png",
+            "plots/recall_at_100.png",
+            "plots/runtime_seconds.png",
+        ]
 
     with config_json.open() as handle:
         config = json.load(handle)
@@ -126,10 +134,11 @@ def build_report(run_dir: Path) -> Path:
             )
 
         handle.write("\n## Plots\n\n")
-        handle.write("- `plots/ndcg_at_10.png`\n")
-        handle.write("- `plots/mrr_at_10.png`\n")
-        handle.write("- `plots/recall_at_100.png`\n")
-        handle.write("- `plots/runtime_seconds.png`\n")
+        if plot_paths:
+            for plot_path in plot_paths:
+                handle.write(f"- `{plot_path}`\n")
+        else:
+            handle.write("Skipped comparison plots because only one model result is present.\n")
 
     return report_path
 

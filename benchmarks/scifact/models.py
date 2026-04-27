@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import gc
+import math
 from dataclasses import dataclass
 from typing import Iterable
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tqdm.auto import tqdm
 from transformers import AutoModel, AutoTokenizer
 
 
@@ -140,8 +142,23 @@ def _normalize(embeddings: torch.Tensor) -> np.ndarray:
     return embeddings.detach().cpu().to(torch.float32).numpy()
 
 
-def _iter_batches(items: list[str], batch_size: int) -> Iterable[list[str]]:
-    for start in range(0, len(items), batch_size):
+def _iter_batches(
+    items: list[str],
+    batch_size: int,
+    *,
+    desc: str,
+    show_progress: bool,
+) -> Iterable[list[str]]:
+    total_batches = math.ceil(len(items) / batch_size)
+    starts = range(0, len(items), batch_size)
+    iterator = tqdm(
+        starts,
+        total=total_batches,
+        desc=desc,
+        disable=not show_progress,
+        leave=False,
+    )
+    for start in iterator:
         yield items[start : start + batch_size]
 
 
@@ -157,11 +174,20 @@ def _last_token_pool(last_hidden_state: torch.Tensor, attention_mask: torch.Tens
 
 
 class BaseEncoder:
-    def __init__(self, spec: ModelSpec, *, device: str, batch_size: int, dtype_name: str) -> None:
+    def __init__(
+        self,
+        spec: ModelSpec,
+        *,
+        device: str,
+        batch_size: int,
+        dtype_name: str,
+        show_progress: bool,
+    ) -> None:
         self.spec = spec
         self.device = device
         self.batch_size = batch_size
         self.dtype = resolve_torch_dtype(dtype_name, device)
+        self.show_progress = show_progress
 
     def encode_queries(self, texts: list[str]) -> np.ndarray:
         raise NotImplementedError
@@ -176,8 +202,22 @@ class BaseEncoder:
 
 
 class QwenLikeEncoder(BaseEncoder):
-    def __init__(self, spec: ModelSpec, *, device: str, batch_size: int, dtype_name: str) -> None:
-        super().__init__(spec, device=device, batch_size=batch_size, dtype_name=dtype_name)
+    def __init__(
+        self,
+        spec: ModelSpec,
+        *,
+        device: str,
+        batch_size: int,
+        dtype_name: str,
+        show_progress: bool,
+    ) -> None:
+        super().__init__(
+            spec,
+            device=device,
+            batch_size=batch_size,
+            dtype_name=dtype_name,
+            show_progress=show_progress,
+        )
         tokenizer_kwargs = {}
         if "Qwen" in spec.model_id:
             tokenizer_kwargs["padding_side"] = "left"
@@ -192,10 +232,15 @@ class QwenLikeEncoder(BaseEncoder):
     def _format_query(self, text: str) -> str:
         return f"Instruct: {SCIENTIFIC_QUERY_INSTRUCTION}\nQuery: {text}"
 
-    def _encode(self, texts: list[str]) -> np.ndarray:
+    def _encode(self, texts: list[str], *, desc: str) -> np.ndarray:
         chunks: list[np.ndarray] = []
         with torch.inference_mode():
-            for batch in _iter_batches(texts, self.batch_size):
+            for batch in _iter_batches(
+                texts,
+                self.batch_size,
+                desc=desc,
+                show_progress=self.show_progress,
+            ):
                 encoded = self.tokenizer(
                     batch,
                     padding=True,
@@ -210,15 +255,32 @@ class QwenLikeEncoder(BaseEncoder):
         return np.concatenate(chunks, axis=0)
 
     def encode_queries(self, texts: list[str]) -> np.ndarray:
-        return self._encode([self._format_query(text) for text in texts])
+        return self._encode(
+            [self._format_query(text) for text in texts],
+            desc=f"{self.spec.key} queries",
+        )
 
     def encode_documents(self, texts: list[str]) -> np.ndarray:
-        return self._encode(texts)
+        return self._encode(texts, desc=f"{self.spec.key} documents")
 
 
 class NVEmbedEncoder(BaseEncoder):
-    def __init__(self, spec: ModelSpec, *, device: str, batch_size: int, dtype_name: str) -> None:
-        super().__init__(spec, device=device, batch_size=batch_size, dtype_name=dtype_name)
+    def __init__(
+        self,
+        spec: ModelSpec,
+        *,
+        device: str,
+        batch_size: int,
+        dtype_name: str,
+        show_progress: bool,
+    ) -> None:
+        super().__init__(
+            spec,
+            device=device,
+            batch_size=batch_size,
+            dtype_name=dtype_name,
+            show_progress=show_progress,
+        )
         model_kwargs = {"trust_remote_code": True}
         if self.dtype is not None:
             model_kwargs["torch_dtype"] = self.dtype
@@ -226,10 +288,15 @@ class NVEmbedEncoder(BaseEncoder):
         self.model.eval()
         self.model.to(self.device)
 
-    def _encode(self, texts: list[str], instruction: str) -> np.ndarray:
+    def _encode(self, texts: list[str], instruction: str, *, desc: str) -> np.ndarray:
         chunks: list[np.ndarray] = []
         with torch.inference_mode():
-            for batch in _iter_batches(texts, self.batch_size):
+            for batch in _iter_batches(
+                texts,
+                self.batch_size,
+                desc=desc,
+                show_progress=self.show_progress,
+            ):
                 embeddings = self.model.encode(
                     batch,
                     instruction=instruction,
@@ -242,15 +309,37 @@ class NVEmbedEncoder(BaseEncoder):
 
     def encode_queries(self, texts: list[str]) -> np.ndarray:
         query_instruction = f"Instruct: {SCIENTIFIC_QUERY_INSTRUCTION}\nQuery: "
-        return self._encode(texts, instruction=query_instruction)
+        return self._encode(
+            texts,
+            instruction=query_instruction,
+            desc=f"{self.spec.key} queries",
+        )
 
     def encode_documents(self, texts: list[str]) -> np.ndarray:
-        return self._encode(texts, instruction="")
+        return self._encode(
+            texts,
+            instruction="",
+            desc=f"{self.spec.key} documents",
+        )
 
 
 class Specter2Encoder(BaseEncoder):
-    def __init__(self, spec: ModelSpec, *, device: str, batch_size: int, dtype_name: str) -> None:
-        super().__init__(spec, device=device, batch_size=batch_size, dtype_name=dtype_name)
+    def __init__(
+        self,
+        spec: ModelSpec,
+        *,
+        device: str,
+        batch_size: int,
+        dtype_name: str,
+        show_progress: bool,
+    ) -> None:
+        super().__init__(
+            spec,
+            device=device,
+            batch_size=batch_size,
+            dtype_name=dtype_name,
+            show_progress=show_progress,
+        )
         from adapters import AutoAdapterModel
 
         base_id = "allenai/specter2_base"
@@ -273,10 +362,15 @@ class Specter2Encoder(BaseEncoder):
         self.document_model.eval()
         self.document_model.to(self.device)
 
-    def _encode(self, texts: list[str], *, model: torch.nn.Module) -> np.ndarray:
+    def _encode(self, texts: list[str], *, model: torch.nn.Module, desc: str) -> np.ndarray:
         chunks: list[np.ndarray] = []
         with torch.inference_mode():
-            for batch in _iter_batches(texts, self.batch_size):
+            for batch in _iter_batches(
+                texts,
+                self.batch_size,
+                desc=desc,
+                show_progress=self.show_progress,
+            ):
                 encoded = self.tokenizer(
                     batch,
                     padding=True,
@@ -292,10 +386,18 @@ class Specter2Encoder(BaseEncoder):
         return np.concatenate(chunks, axis=0)
 
     def encode_queries(self, texts: list[str]) -> np.ndarray:
-        return self._encode(texts, model=self.query_model)
+        return self._encode(
+            texts,
+            model=self.query_model,
+            desc=f"{self.spec.key} queries",
+        )
 
     def encode_documents(self, texts: list[str]) -> np.ndarray:
-        return self._encode(texts, model=self.document_model)
+        return self._encode(
+            texts,
+            model=self.document_model,
+            desc=f"{self.spec.key} documents",
+        )
 
     def unload(self) -> None:
         del self.query_model
@@ -312,8 +414,15 @@ class BGEEnICLEncoder(BaseEncoder):
         batch_size: int,
         dtype_name: str,
         use_examples: bool,
+        show_progress: bool,
     ) -> None:
-        super().__init__(spec, device=device, batch_size=batch_size, dtype_name=dtype_name)
+        super().__init__(
+            spec,
+            device=device,
+            batch_size=batch_size,
+            dtype_name=dtype_name,
+            show_progress=show_progress,
+        )
         model_kwargs = {}
         if self.dtype is not None:
             model_kwargs["torch_dtype"] = self.dtype
@@ -366,10 +475,15 @@ class BGEEnICLEncoder(BaseEncoder):
             [self.examples_prefix + query + "\n<response>" for query in stripped_queries],
         )
 
-    def _encode(self, texts: list[str], *, max_length: int) -> np.ndarray:
+    def _encode(self, texts: list[str], *, max_length: int, desc: str) -> np.ndarray:
         chunks: list[np.ndarray] = []
         with torch.inference_mode():
-            for batch in _iter_batches(texts, self.batch_size):
+            for batch in _iter_batches(
+                texts,
+                self.batch_size,
+                desc=desc,
+                show_progress=self.show_progress,
+            ):
                 encoded = self.tokenizer(
                     batch,
                     padding=True,
@@ -385,10 +499,18 @@ class BGEEnICLEncoder(BaseEncoder):
 
     def encode_queries(self, texts: list[str]) -> np.ndarray:
         max_length, prepared_queries = self._prepare_queries(texts)
-        return self._encode(prepared_queries, max_length=max_length)
+        return self._encode(
+            prepared_queries,
+            max_length=max_length,
+            desc=f"{self.spec.key} queries",
+        )
 
     def encode_documents(self, texts: list[str]) -> np.ndarray:
-        return self._encode(texts, max_length=self.spec.max_length)
+        return self._encode(
+            texts,
+            max_length=self.spec.max_length,
+            desc=f"{self.spec.key} documents",
+        )
 
 
 def build_encoder(
@@ -398,6 +520,7 @@ def build_encoder(
     batch_size: int | None,
     dtype_name: str,
     bge_use_examples: bool,
+    show_progress: bool,
 ) -> BaseEncoder:
     spec = MODEL_SPECS[model_key]
     effective_batch_size = batch_size or spec.default_batch_size
@@ -408,6 +531,7 @@ def build_encoder(
             device=device,
             batch_size=effective_batch_size,
             dtype_name=dtype_name,
+            show_progress=show_progress,
         )
     if spec.encoder_kind == "nv_embed":
         return NVEmbedEncoder(
@@ -415,6 +539,7 @@ def build_encoder(
             device=device,
             batch_size=effective_batch_size,
             dtype_name=dtype_name,
+            show_progress=show_progress,
         )
     if spec.encoder_kind == "specter2":
         return Specter2Encoder(
@@ -422,6 +547,7 @@ def build_encoder(
             device=device,
             batch_size=effective_batch_size,
             dtype_name=dtype_name,
+            show_progress=show_progress,
         )
     if spec.encoder_kind == "bge_en_icl":
         return BGEEnICLEncoder(
@@ -430,5 +556,6 @@ def build_encoder(
             batch_size=effective_batch_size,
             dtype_name=dtype_name,
             use_examples=bge_use_examples,
+            show_progress=show_progress,
         )
     raise ValueError(f"Unsupported encoder_kind: {spec.encoder_kind}")
