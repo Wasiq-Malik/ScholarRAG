@@ -1,0 +1,20 @@
+[project]
+name = "scholarrag"
+version = "0.1.0"
+description = "Initial dataset inspection for ScholarRAG"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "adapters>=1.2.0",
+    "datasets>=3.0.0",
+    "huggingface_hub>=0.30.0",
+    "matplotlib>=3.9.0",
+    "numpy>=2.0.0",
+    "torch>=2.4.0",
+    "tqdm>=4.66.0",
+    "transformers>=4.51.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
