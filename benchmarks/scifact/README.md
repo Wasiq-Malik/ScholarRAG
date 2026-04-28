@@ -10,13 +10,16 @@ retrieval on the `mteb/scifact` dataset.
 - Saves per-model rankings and aggregate metrics
 - Writes per-model status files and failure metadata
 - Generates plots and a markdown report for comparison
+- Reports both offline indexing cost and query-time latency metrics
 
 ## Default model shortlist
 
 - `bge_en_icl`
+- `qwen3_0_6b`
+- `qwen3_4b`
 - `qwen3_8b`
 - `harrier_0_6b`
-- `nv_embed_v2`
+- `embeddinggemma_300m`
 - `specter2`
 
 ## Quick start
@@ -29,7 +32,7 @@ python benchmarks/scifact/run_benchmark.py
 
 ## Common runs
 
-Benchmark the default five models on SciFact test:
+Benchmark the default seven models on SciFact test:
 
 ```bash
 python benchmarks/scifact/run_benchmark.py
@@ -41,6 +44,8 @@ Colab notebook entry point:
 
 The notebook runs one model per subprocess, writes per-model logs, and
 aggregates successful runs so Colab OOMs do not discard all results.
+It now defaults to an L4-oriented inference preset, with one lower-memory
+fallback preset you can switch to in one config cell.
 
 Benchmark a smaller subset first:
 
@@ -69,6 +74,19 @@ Each run writes to `benchmarks/scifact/results/<timestamp>/`:
 - `rankings/<model>.csv`: top-k ranked documents per query
 - `plots/*.png`: metric comparison charts
 - `REPORT.md`: generated benchmark summary
+
+Key latency fields in `summary.csv`:
+
+- `document_encoding_seconds`: offline corpus embedding time
+- `query_encoding_seconds`: total query embedding time over the evaluation set
+- `retrieval_scoring_seconds`: total dense retrieval scoring time over the evaluation set
+- `avg_document_latency_ms`: average per-document embedding latency during corpus encoding
+- `avg_query_encoding_latency_ms`: average per-query embedding latency
+- `avg_retrieval_scoring_latency_ms`: average per-query dense scoring latency
+- `avg_query_end_to_end_latency_ms`: average per-query latency for query embedding plus dense retrieval scoring
+- `total_runtime_seconds`: end-to-end benchmark runtime for the model
+
+The generated report also includes a direct `nDCG@10` vs query-latency tradeoff plot so you can see which models sit on the useful quality/latency frontier.
 
 ## Notes
 

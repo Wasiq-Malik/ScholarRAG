@@ -63,6 +63,26 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         default_batch_size=8,
         notes="English instruction-aware embedding model with optional few-shot examples.",
     ),
+    "qwen3_0_6b": ModelSpec(
+        key="qwen3_0_6b",
+        model_id="Qwen/Qwen3-Embedding-0.6B",
+        family="Qwen3",
+        approx_params="0.6B",
+        max_length=2048,
+        encoder_kind="qwen_like",
+        default_batch_size=32,
+        notes="Smallest Qwen3 embedding variant for strong quality-latency tradeoffs.",
+    ),
+    "qwen3_4b": ModelSpec(
+        key="qwen3_4b",
+        model_id="Qwen/Qwen3-Embedding-4B",
+        family="Qwen3",
+        approx_params="4B",
+        max_length=2048,
+        encoder_kind="qwen_like",
+        default_batch_size=8,
+        notes="Mid-sized Qwen3 embedding variant for stronger retrieval quality than 0.6B.",
+    ),
     "qwen3_8b": ModelSpec(
         key="qwen3_8b",
         model_id="Qwen/Qwen3-Embedding-8B",
@@ -83,15 +103,15 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         default_batch_size=16,
         notes="Smaller multilingual harrier variant with last-token pooling.",
     ),
-    "nv_embed_v2": ModelSpec(
-        key="nv_embed_v2",
-        model_id="nvidia/NV-Embed-v2",
-        family="NV-Embed",
-        approx_params="8B",
-        max_length=2048,
-        encoder_kind="nv_embed",
-        default_batch_size=4,
-        notes="Instruction-tuned LLM-based embedding model; non-commercial license.",
+    "embeddinggemma_300m": ModelSpec(
+        key="embeddinggemma_300m",
+        model_id="google/embeddinggemma-300m",
+        family="EmbeddingGemma",
+        approx_params="0.3B",
+        max_length=1024,
+        encoder_kind="embeddinggemma",
+        default_batch_size=64,
+        notes="Lightweight open Google embedding model optimized for efficient multilingual retrieval.",
     ),
     "specter2": ModelSpec(
         key="specter2",
@@ -111,7 +131,15 @@ def available_model_keys() -> list[str]:
 
 
 def default_model_keys() -> list[str]:
-    return ["bge_en_icl", "qwen3_8b", "harrier_0_6b", "nv_embed_v2", "specter2"]
+    return [
+        "bge_en_icl",
+        "qwen3_0_6b",
+        "qwen3_4b",
+        "qwen3_8b",
+        "harrier_0_6b",
+        "embeddinggemma_300m",
+        "specter2",
+    ]
 
 
 def select_device(explicit_device: str | None) -> str:
@@ -264,65 +292,6 @@ class QwenLikeEncoder(BaseEncoder):
         return self._encode(texts, desc=f"{self.spec.key} documents")
 
 
-class NVEmbedEncoder(BaseEncoder):
-    def __init__(
-        self,
-        spec: ModelSpec,
-        *,
-        device: str,
-        batch_size: int,
-        dtype_name: str,
-        show_progress: bool,
-    ) -> None:
-        super().__init__(
-            spec,
-            device=device,
-            batch_size=batch_size,
-            dtype_name=dtype_name,
-            show_progress=show_progress,
-        )
-        model_kwargs = {"trust_remote_code": True}
-        if self.dtype is not None:
-            model_kwargs["torch_dtype"] = self.dtype
-        self.model = AutoModel.from_pretrained(spec.model_id, **model_kwargs)
-        self.model.eval()
-        self.model.to(self.device)
-
-    def _encode(self, texts: list[str], instruction: str, *, desc: str) -> np.ndarray:
-        chunks: list[np.ndarray] = []
-        with torch.inference_mode():
-            for batch in _iter_batches(
-                texts,
-                self.batch_size,
-                desc=desc,
-                show_progress=self.show_progress,
-            ):
-                embeddings = self.model.encode(
-                    batch,
-                    instruction=instruction,
-                    max_length=self.spec.max_length,
-                )
-                if not isinstance(embeddings, torch.Tensor):
-                    embeddings = torch.tensor(embeddings)
-                chunks.append(_normalize(embeddings))
-        return np.concatenate(chunks, axis=0)
-
-    def encode_queries(self, texts: list[str]) -> np.ndarray:
-        query_instruction = f"Instruct: {SCIENTIFIC_QUERY_INSTRUCTION}\nQuery: "
-        return self._encode(
-            texts,
-            instruction=query_instruction,
-            desc=f"{self.spec.key} queries",
-        )
-
-    def encode_documents(self, texts: list[str]) -> np.ndarray:
-        return self._encode(
-            texts,
-            instruction="",
-            desc=f"{self.spec.key} documents",
-        )
-
-
 class Specter2Encoder(BaseEncoder):
     def __init__(
         self,
@@ -403,6 +372,61 @@ class Specter2Encoder(BaseEncoder):
         del self.query_model
         del self.document_model
         super().unload()
+
+
+class EmbeddingGemmaEncoder(BaseEncoder):
+    def __init__(
+        self,
+        spec: ModelSpec,
+        *,
+        device: str,
+        batch_size: int,
+        dtype_name: str,
+        show_progress: bool,
+    ) -> None:
+        super().__init__(
+            spec,
+            device=device,
+            batch_size=batch_size,
+            dtype_name=dtype_name,
+            show_progress=show_progress,
+        )
+        from sentence_transformers import SentenceTransformer
+
+        if device == "cuda":
+            if dtype_name in {"auto", "float16", "bfloat16"}:
+                model_dtype = torch.bfloat16
+            else:
+                model_dtype = torch.float32
+        else:
+            model_dtype = torch.float32
+
+        self.model = SentenceTransformer(
+            spec.model_id,
+            model_kwargs={"torch_dtype": model_dtype},
+            truncate_dim=768,
+        )
+        self.model.to(self.device)
+
+    def encode_queries(self, texts: list[str]) -> np.ndarray:
+        return self.model.encode(
+            texts,
+            prompt_name="query",
+            batch_size=self.batch_size,
+            show_progress_bar=self.show_progress,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
+
+    def encode_documents(self, texts: list[str]) -> np.ndarray:
+        return self.model.encode(
+            texts,
+            prompt_name="document",
+            batch_size=self.batch_size,
+            show_progress_bar=self.show_progress,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
 
 
 class BGEEnICLEncoder(BaseEncoder):
@@ -533,16 +557,16 @@ def build_encoder(
             dtype_name=dtype_name,
             show_progress=show_progress,
         )
-    if spec.encoder_kind == "nv_embed":
-        return NVEmbedEncoder(
+    if spec.encoder_kind == "specter2":
+        return Specter2Encoder(
             spec,
             device=device,
             batch_size=effective_batch_size,
             dtype_name=dtype_name,
             show_progress=show_progress,
         )
-    if spec.encoder_kind == "specter2":
-        return Specter2Encoder(
+    if spec.encoder_kind == "embeddinggemma":
+        return EmbeddingGemmaEncoder(
             spec,
             device=device,
             batch_size=effective_batch_size,

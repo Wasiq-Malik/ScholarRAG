@@ -194,6 +194,7 @@ def main() -> None:
 
             rankings_path = run_dir / "rankings" / f"{model_key}.csv"
             print(f"[{model_key}] Scoring and writing rankings to {rankings_path}", flush=True)
+            scoring_start = time.perf_counter()
             metrics = score_and_write_rankings(
                 model_name=model_key,
                 query_ids=data.query_ids,
@@ -204,6 +205,7 @@ def main() -> None:
                 rankings_path=rankings_path,
                 top_k_to_write=args.top_k,
             )
+            scoring_seconds = time.perf_counter() - scoring_start
             total_seconds = time.perf_counter() - start_time
             print(
                 f"[{model_key}] Metrics: nDCG@10={metrics.ndcg_at_10:.4f}, "
@@ -217,6 +219,9 @@ def main() -> None:
                     "model_id": spec.model_id,
                     "family": spec.family,
                     "approx_params": spec.approx_params,
+                    "device": device,
+                    "dtype": args.dtype,
+                    "batch_size": encoder.batch_size,
                     "embedding_dim": corpus_embeddings.shape[1],
                     "query_count": len(data.query_ids),
                     "corpus_size": len(data.corpus_ids),
@@ -229,7 +234,16 @@ def main() -> None:
                     "map_at_10": metrics.map_at_10,
                     "document_encoding_seconds": doc_seconds,
                     "query_encoding_seconds": query_seconds,
+                    "retrieval_scoring_seconds": scoring_seconds,
+                    "query_stage_seconds": query_seconds + scoring_seconds,
                     "total_runtime_seconds": total_seconds,
+                    "avg_document_latency_ms": (doc_seconds / len(data.corpus_ids)) * 1000,
+                    "avg_query_encoding_latency_ms": (query_seconds / len(data.query_ids)) * 1000,
+                    "avg_retrieval_scoring_latency_ms": (scoring_seconds / len(data.query_ids)) * 1000,
+                    "avg_query_end_to_end_latency_ms": (
+                        (query_seconds + scoring_seconds) / len(data.query_ids)
+                    )
+                    * 1000,
                     "documents_per_second": len(data.corpus_ids) / max(doc_seconds, 1e-6),
                     "queries_per_second": len(data.query_ids) / max(query_seconds, 1e-6),
                     "notes": spec.notes,
