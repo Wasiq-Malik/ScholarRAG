@@ -19,12 +19,10 @@ retrieval on the `mteb/scifact` dataset.
 - `qwen3_0_6b`
 - `qwen3_4b`
 - `qwen3_8b`
-- `llama_embed_nemotron_8b`
 - `harrier_0_6b`
 - `embeddinggemma_300m`
 - `embeddinggemma_fact_check`
 - `embeddinggemma_qa`
-- `kalm_gemma3_12b`
 - `specter2`
 
 ## Quick start
@@ -40,7 +38,7 @@ export `HF_TOKEN` in your shell or Colab session before running the benchmark.
 
 ## Common runs
 
-Benchmark the default twelve-model mix on SciFact test:
+Benchmark the default ten-model mix on SciFact test:
 
 ```bash
 python benchmarks/scifact/run_benchmark.py

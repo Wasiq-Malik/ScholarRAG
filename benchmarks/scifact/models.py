@@ -108,16 +108,6 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         default_batch_size=8,
         notes="Instruction-aware decoder embedding model with last-token pooling.",
     ),
-    "llama_embed_nemotron_8b": ModelSpec(
-        key="llama_embed_nemotron_8b",
-        model_id="nvidia/llama-embed-nemotron-8b",
-        family="Nemotron",
-        approx_params="7.5B",
-        max_length=2048,
-        encoder_kind="sentence_transformer_remote",
-        default_batch_size=2,
-        notes="NVIDIA multilingual embedding model with sentence-transformers remote code and encode_query/encode_document support.",
-    ),
     "harrier_0_6b": ModelSpec(
         key="harrier_0_6b",
         model_id="microsoft/harrier-oss-v1-0.6b",
@@ -162,16 +152,6 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         query_prompt="task: question answering | query: ",
         document_prompt="title: none | text: ",
     ),
-    "kalm_gemma3_12b": ModelSpec(
-        key="kalm_gemma3_12b",
-        model_id="tencent/KaLM-Embedding-Gemma3-12B-2511",
-        family="KaLM",
-        approx_params="11.76B",
-        max_length=2048,
-        encoder_kind="sentence_transformer_remote",
-        default_batch_size=1,
-        notes="Large Gemma3-based embedding model with sentence-transformers remote code and encode_query/encode_document support.",
-    ),
     "specter2": ModelSpec(
         key="specter2",
         model_id="allenai/specter2",
@@ -196,12 +176,10 @@ def default_model_keys() -> list[str]:
         "qwen3_0_6b",
         "qwen3_4b",
         "qwen3_8b",
-        "llama_embed_nemotron_8b",
         "harrier_0_6b",
         "embeddinggemma_300m",
         "embeddinggemma_fact_check",
         "embeddinggemma_qa",
-        "kalm_gemma3_12b",
         "specter2",
     ]
 
