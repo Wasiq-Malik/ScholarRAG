@@ -19,8 +19,12 @@ retrieval on the `mteb/scifact` dataset.
 - `qwen3_0_6b`
 - `qwen3_4b`
 - `qwen3_8b`
+- `llama_embed_nemotron_8b`
 - `harrier_0_6b`
 - `embeddinggemma_300m`
+- `embeddinggemma_fact_check`
+- `embeddinggemma_qa`
+- `kalm_gemma3_12b`
 - `specter2`
 
 ## Quick start
@@ -36,7 +40,7 @@ export `HF_TOKEN` in your shell or Colab session before running the benchmark.
 
 ## Common runs
 
-Benchmark the default eight-model mix on SciFact test:
+Benchmark the default twelve-model mix on SciFact test:
 
 ```bash
 python benchmarks/scifact/run_benchmark.py
@@ -55,6 +59,12 @@ fallback preset you can switch to in one config cell.
 
 - `bge_en_icl_plain`: instruction/query formatting only
 - `bge_en_icl_examples`: instruction/query formatting plus few-shot examples
+
+`EmbeddingGemma` is benchmarked three ways by default:
+
+- `embeddinggemma_300m`: default query/document prompts
+- `embeddinggemma_fact_check`: official fact-checking query prompt
+- `embeddinggemma_qa`: official question-answering query prompt
 
 Benchmark a smaller subset first:
 
@@ -96,6 +106,7 @@ Key latency fields in `summary.csv`:
 - `total_runtime_seconds`: end-to-end benchmark runtime for the model
 
 The generated report also includes a direct `nDCG@10` vs query-latency tradeoff plot so you can see which models sit on the useful quality/latency frontier.
+It also writes a `MAP@10` comparison plot alongside the `nDCG@10`, `MRR@10`, and latency plots.
 
 ## Notes
 

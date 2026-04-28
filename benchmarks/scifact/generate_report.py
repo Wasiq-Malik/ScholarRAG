@@ -108,6 +108,12 @@ def build_report(run_dir: Path) -> Path:
         )
         plot_metric(
             rows,
+            metric_key="map_at_10",
+            title="SciFact MAP@10",
+            output_path=plots_dir / "map_at_10.png",
+        )
+        plot_metric(
+            rows,
             metric_key="recall_at_100",
             title="SciFact Recall@100",
             output_path=plots_dir / "recall_at_100.png",
@@ -137,6 +143,7 @@ def build_report(run_dir: Path) -> Path:
         plot_paths = [
             "plots/ndcg_at_10.png",
             "plots/mrr_at_10.png",
+            "plots/map_at_10.png",
             "plots/recall_at_100.png",
             "plots/runtime_seconds.png",
         ]
@@ -152,6 +159,7 @@ def build_report(run_dir: Path) -> Path:
         config = json.load(handle)
 
     best_by_ndcg = max(rows, key=lambda row: float(row["ndcg_at_10"]))
+    best_by_map = max(rows, key=lambda row: float(row["map_at_10"]))
     best_by_recall = max(rows, key=lambda row: float(row["recall_at_100"]))
     fastest = min(rows, key=lambda row: float(row["total_runtime_seconds"]))
     lowest_query_latency = (
@@ -175,6 +183,9 @@ def build_report(run_dir: Path) -> Path:
         handle.write("## Headline results\n\n")
         handle.write(
             f"- Best `nDCG@10`: `{best_by_ndcg['model']}` at `{float(best_by_ndcg['ndcg_at_10']):.4f}`\n"
+        )
+        handle.write(
+            f"- Best `MAP@10`: `{best_by_map['model']}` at `{float(best_by_map['map_at_10']):.4f}`\n"
         )
         handle.write(
             f"- Best `Recall@100`: `{best_by_recall['model']}` at `{float(best_by_recall['recall_at_100']):.4f}`\n"

@@ -52,6 +52,8 @@ class ModelSpec:
     default_batch_size: int
     notes: str
     use_examples: bool = False
+    query_prompt: str | None = None
+    document_prompt: str | None = None
 
 
 MODEL_SPECS: dict[str, ModelSpec] = {
@@ -106,6 +108,16 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         default_batch_size=8,
         notes="Instruction-aware decoder embedding model with last-token pooling.",
     ),
+    "llama_embed_nemotron_8b": ModelSpec(
+        key="llama_embed_nemotron_8b",
+        model_id="nvidia/llama-embed-nemotron-8b",
+        family="Nemotron",
+        approx_params="7.5B",
+        max_length=2048,
+        encoder_kind="sentence_transformer_remote",
+        default_batch_size=2,
+        notes="NVIDIA multilingual embedding model with sentence-transformers remote code and encode_query/encode_document support.",
+    ),
     "harrier_0_6b": ModelSpec(
         key="harrier_0_6b",
         model_id="microsoft/harrier-oss-v1-0.6b",
@@ -125,6 +137,40 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         encoder_kind="embeddinggemma",
         default_batch_size=64,
         notes="Lightweight open Google embedding model optimized for efficient multilingual retrieval.",
+    ),
+    "embeddinggemma_fact_check": ModelSpec(
+        key="embeddinggemma_fact_check",
+        model_id="google/embeddinggemma-300m",
+        family="EmbeddingGemma",
+        approx_params="0.3B",
+        max_length=1024,
+        encoder_kind="embeddinggemma",
+        default_batch_size=64,
+        notes="EmbeddingGemma with the official fact-checking query prompt and retrieval-style document prompt.",
+        query_prompt="task: fact checking | query: ",
+        document_prompt="title: none | text: ",
+    ),
+    "embeddinggemma_qa": ModelSpec(
+        key="embeddinggemma_qa",
+        model_id="google/embeddinggemma-300m",
+        family="EmbeddingGemma",
+        approx_params="0.3B",
+        max_length=1024,
+        encoder_kind="embeddinggemma",
+        default_batch_size=64,
+        notes="EmbeddingGemma with the official question-answering query prompt and retrieval-style document prompt.",
+        query_prompt="task: question answering | query: ",
+        document_prompt="title: none | text: ",
+    ),
+    "kalm_gemma3_12b": ModelSpec(
+        key="kalm_gemma3_12b",
+        model_id="tencent/KaLM-Embedding-Gemma3-12B-2511",
+        family="KaLM",
+        approx_params="11.76B",
+        max_length=2048,
+        encoder_kind="sentence_transformer_remote",
+        default_batch_size=1,
+        notes="Large Gemma3-based embedding model with sentence-transformers remote code and encode_query/encode_document support.",
     ),
     "specter2": ModelSpec(
         key="specter2",
@@ -150,8 +196,12 @@ def default_model_keys() -> list[str]:
         "qwen3_0_6b",
         "qwen3_4b",
         "qwen3_8b",
+        "llama_embed_nemotron_8b",
         "harrier_0_6b",
         "embeddinggemma_300m",
+        "embeddinggemma_fact_check",
+        "embeddinggemma_qa",
+        "kalm_gemma3_12b",
         "specter2",
     ]
 
@@ -433,6 +483,15 @@ class EmbeddingGemmaEncoder(BaseEncoder):
         self.model.to(self.device)
 
     def encode_queries(self, texts: list[str]) -> np.ndarray:
+        if self.spec.query_prompt:
+            return self.model.encode(
+                texts,
+                prompt=self.spec.query_prompt,
+                batch_size=self.batch_size,
+                show_progress_bar=self.show_progress,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            )
         return self.model.encode(
             texts,
             prompt_name="query",
@@ -443,9 +502,90 @@ class EmbeddingGemmaEncoder(BaseEncoder):
         )
 
     def encode_documents(self, texts: list[str]) -> np.ndarray:
+        if self.spec.document_prompt:
+            return self.model.encode(
+                texts,
+                prompt=self.spec.document_prompt,
+                batch_size=self.batch_size,
+                show_progress_bar=self.show_progress,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            )
         return self.model.encode(
             texts,
             prompt_name="document",
+            batch_size=self.batch_size,
+            show_progress_bar=self.show_progress,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
+
+
+class SentenceTransformerRemoteEncoder(BaseEncoder):
+    def __init__(
+        self,
+        spec: ModelSpec,
+        *,
+        device: str,
+        batch_size: int,
+        dtype_name: str,
+        show_progress: bool,
+    ) -> None:
+        super().__init__(
+            spec,
+            device=device,
+            batch_size=batch_size,
+            dtype_name=dtype_name,
+            show_progress=show_progress,
+        )
+        from sentence_transformers import SentenceTransformer
+
+        model_dtype = self.dtype
+        if model_dtype is None and device == "cuda":
+            model_dtype = torch.bfloat16
+
+        model_kwargs = {"trust_remote_code": True}
+        if model_dtype is not None:
+            model_kwargs["torch_dtype"] = model_dtype
+
+        self.model = SentenceTransformer(
+            spec.model_id,
+            token=hf_auth_kwargs().get("token"),
+            trust_remote_code=True,
+            model_kwargs=model_kwargs,
+        )
+        self.model.max_seq_length = spec.max_length
+        self.model.to(self.device)
+
+    def encode_queries(self, texts: list[str]) -> np.ndarray:
+        if hasattr(self.model, "encode_query"):
+            return self.model.encode_query(
+                texts,
+                batch_size=self.batch_size,
+                show_progress_bar=self.show_progress,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            )
+        return self.model.encode(
+            texts,
+            prompt=f"Instruct: {SCIENTIFIC_QUERY_INSTRUCTION}\nQuery: ",
+            batch_size=self.batch_size,
+            show_progress_bar=self.show_progress,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
+
+    def encode_documents(self, texts: list[str]) -> np.ndarray:
+        if hasattr(self.model, "encode_document"):
+            return self.model.encode_document(
+                texts,
+                batch_size=self.batch_size,
+                show_progress_bar=self.show_progress,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            )
+        return self.model.encode(
+            texts,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress,
             convert_to_numpy=True,
@@ -591,6 +731,14 @@ def build_encoder(
         )
     if spec.encoder_kind == "embeddinggemma":
         return EmbeddingGemmaEncoder(
+            spec,
+            device=device,
+            batch_size=effective_batch_size,
+            dtype_name=dtype_name,
+            show_progress=show_progress,
+        )
+    if spec.encoder_kind == "sentence_transformer_remote":
+        return SentenceTransformerRemoteEncoder(
             spec,
             device=device,
             batch_size=effective_batch_size,
