@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import math
+import os
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -50,18 +51,30 @@ class ModelSpec:
     encoder_kind: str
     default_batch_size: int
     notes: str
+    use_examples: bool = False
 
 
 MODEL_SPECS: dict[str, ModelSpec] = {
-    "bge_en_icl": ModelSpec(
-        key="bge_en_icl",
+    "bge_en_icl_plain": ModelSpec(
+        key="bge_en_icl_plain",
         model_id="BAAI/bge-en-icl",
         family="BGE",
         approx_params="7B",
         max_length=512,
         encoder_kind="bge_en_icl",
         default_batch_size=8,
-        notes="English instruction-aware embedding model with optional few-shot examples.",
+        notes="English instruction-aware embedding model without few-shot query examples.",
+    ),
+    "bge_en_icl_examples": ModelSpec(
+        key="bge_en_icl_examples",
+        model_id="BAAI/bge-en-icl",
+        family="BGE",
+        approx_params="7B",
+        max_length=512,
+        encoder_kind="bge_en_icl",
+        default_batch_size=8,
+        notes="English instruction-aware embedding model with few-shot query examples enabled.",
+        use_examples=True,
     ),
     "qwen3_0_6b": ModelSpec(
         key="qwen3_0_6b",
@@ -132,7 +145,8 @@ def available_model_keys() -> list[str]:
 
 def default_model_keys() -> list[str]:
     return [
-        "bge_en_icl",
+        "bge_en_icl_plain",
+        "bge_en_icl_examples",
         "qwen3_0_6b",
         "qwen3_4b",
         "qwen3_8b",
@@ -163,6 +177,13 @@ def resolve_torch_dtype(dtype_name: str, device: str) -> torch.dtype | None:
         "float32": torch.float32,
     }
     return mapping[dtype_name]
+
+
+def hf_auth_kwargs() -> dict[str, str]:
+    token = os.environ.get("HF_TOKEN", "").strip()
+    if not token:
+        return {}
+    return {"token": token}
 
 
 def _normalize(embeddings: torch.Tensor) -> np.ndarray:
@@ -249,8 +270,9 @@ class QwenLikeEncoder(BaseEncoder):
         tokenizer_kwargs = {}
         if "Qwen" in spec.model_id:
             tokenizer_kwargs["padding_side"] = "left"
+        tokenizer_kwargs.update(hf_auth_kwargs())
         self.tokenizer = AutoTokenizer.from_pretrained(spec.model_id, **tokenizer_kwargs)
-        model_kwargs = {}
+        model_kwargs = hf_auth_kwargs()
         if self.dtype is not None:
             model_kwargs["torch_dtype"] = self.dtype
         self.model = AutoModel.from_pretrained(spec.model_id, **model_kwargs)
@@ -312,8 +334,9 @@ class Specter2Encoder(BaseEncoder):
         from adapters import AutoAdapterModel
 
         base_id = "allenai/specter2_base"
-        self.tokenizer = AutoTokenizer.from_pretrained(base_id)
-        self.query_model = AutoAdapterModel.from_pretrained(base_id)
+        auth_kwargs = hf_auth_kwargs()
+        self.tokenizer = AutoTokenizer.from_pretrained(base_id, **auth_kwargs)
+        self.query_model = AutoAdapterModel.from_pretrained(base_id, **auth_kwargs)
         query_adapter = self.query_model.load_adapter(
             "allenai/specter2_adhoc_query",
             source="hf",
@@ -322,7 +345,7 @@ class Specter2Encoder(BaseEncoder):
         self.query_model.eval()
         self.query_model.to(self.device)
 
-        self.document_model = AutoAdapterModel.from_pretrained(base_id)
+        self.document_model = AutoAdapterModel.from_pretrained(base_id, **auth_kwargs)
         document_adapter = self.document_model.load_adapter(
             "allenai/specter2",
             source="hf",
@@ -403,6 +426,7 @@ class EmbeddingGemmaEncoder(BaseEncoder):
 
         self.model = SentenceTransformer(
             spec.model_id,
+            token=hf_auth_kwargs().get("token"),
             model_kwargs={"torch_dtype": model_dtype},
             truncate_dim=768,
         )
@@ -447,10 +471,10 @@ class BGEEnICLEncoder(BaseEncoder):
             dtype_name=dtype_name,
             show_progress=show_progress,
         )
-        model_kwargs = {}
+        model_kwargs = hf_auth_kwargs()
         if self.dtype is not None:
             model_kwargs["torch_dtype"] = self.dtype
-        self.tokenizer = AutoTokenizer.from_pretrained(spec.model_id)
+        self.tokenizer = AutoTokenizer.from_pretrained(spec.model_id, **hf_auth_kwargs())
         self.model = AutoModel.from_pretrained(spec.model_id, **model_kwargs)
         self.model.eval()
         self.model.to(self.device)
@@ -579,7 +603,7 @@ def build_encoder(
             device=device,
             batch_size=effective_batch_size,
             dtype_name=dtype_name,
-            use_examples=bge_use_examples,
+            use_examples=spec.use_examples or bge_use_examples,
             show_progress=show_progress,
         )
     raise ValueError(f"Unsupported encoder_kind: {spec.encoder_kind}")

@@ -14,7 +14,8 @@ retrieval on the `mteb/scifact` dataset.
 
 ## Default model shortlist
 
-- `bge_en_icl`
+- `bge_en_icl_plain`
+- `bge_en_icl_examples`
 - `qwen3_0_6b`
 - `qwen3_4b`
 - `qwen3_8b`
@@ -30,9 +31,12 @@ pip install -e .
 python benchmarks/scifact/run_benchmark.py
 ```
 
+If you want to include gated Hugging Face models such as `embeddinggemma_300m`,
+export `HF_TOKEN` in your shell or Colab session before running the benchmark.
+
 ## Common runs
 
-Benchmark the default seven models on SciFact test:
+Benchmark the default eight-model mix on SciFact test:
 
 ```bash
 python benchmarks/scifact/run_benchmark.py
@@ -46,6 +50,11 @@ The notebook runs one model per subprocess, writes per-model logs, and
 aggregates successful runs so Colab OOMs do not discard all results.
 It now defaults to an L4-oriented inference preset, with one lower-memory
 fallback preset you can switch to in one config cell.
+
+`bge_en_icl` is benchmarked twice by default:
+
+- `bge_en_icl_plain`: instruction/query formatting only
+- `bge_en_icl_examples`: instruction/query formatting plus few-shot examples
 
 Benchmark a smaller subset first:
 

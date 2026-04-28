@@ -97,7 +97,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--bge-use-examples",
         action="store_true",
-        help="Enable few-shot examples for bge-en-icl query formatting.",
+        help="Force few-shot examples on for BGE query formatting. The default model mix already includes explicit plain and examples variants.",
     )
     parser.add_argument(
         "--show-progress",
