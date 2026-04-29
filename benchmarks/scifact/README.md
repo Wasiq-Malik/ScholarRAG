@@ -82,6 +82,27 @@ Regenerate the report from an existing run:
 python benchmarks/scifact/generate_report.py --run-dir benchmarks/scifact/results/<run_name>
 ```
 
+## Reranker experiment
+
+Separate Colab notebook entry point:
+
+`benchmarks/scifact/scifact_reranker_experiment_colab.ipynb`
+
+This experiment fixes the retriever to `embeddinggemma_fact_check`, then
+benchmarks a diverse reranker set on bi-encoder candidates at `K=50` and `K=100`.
+
+Run the reranker benchmark locally:
+
+```bash
+python benchmarks/scifact/run_reranker_benchmark.py
+```
+
+Regenerate a reranker report from an existing run:
+
+```bash
+python benchmarks/scifact/generate_reranker_report.py --run-dir benchmarks/scifact/results/<run_name>
+```
+
 ## Outputs
 
 Each run writes to `benchmarks/scifact/results/<timestamp>/`:

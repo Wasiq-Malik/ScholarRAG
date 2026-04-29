@@ -58,6 +58,92 @@ def _average_precision_at_k(ranked_binary: list[int], total_relevant: int, k: in
     return precision_sum / min(total_relevant, k)
 
 
+def score_ranked_lists(
+    *,
+    query_ids: list[str],
+    ranked_corpus_ids_by_query: dict[str, list[str]],
+    positives_by_query: dict[str, dict[str, float]],
+) -> EvalSummary:
+    ndcg_values: list[float] = []
+    mrr_values: list[float] = []
+    recall10_values: list[float] = []
+    recall50_values: list[float] = []
+    recall100_values: list[float] = []
+    map10_values: list[float] = []
+
+    for query_id in query_ids:
+        relevant_docs = positives_by_query[query_id]
+        total_relevant = len(relevant_docs)
+        ranked_ids = ranked_corpus_ids_by_query[query_id]
+
+        ranked_binary = [1 if corpus_id in relevant_docs else 0 for corpus_id in ranked_ids]
+        ranked_relevances = [relevant_docs.get(corpus_id, 0.0) for corpus_id in ranked_ids]
+        ideal_relevances = list(relevant_docs.values())
+
+        ndcg_values.append(_ndcg_at_k(ranked_relevances, ideal_relevances, 10))
+        mrr_values.append(_mrr_at_k(ranked_binary, 10))
+        recall10_values.append(_recall_at_k(ranked_binary, total_relevant, 10))
+        recall50_values.append(_recall_at_k(ranked_binary, total_relevant, 50))
+        recall100_values.append(_recall_at_k(ranked_binary, total_relevant, 100))
+        map10_values.append(_average_precision_at_k(ranked_binary, total_relevant, 10))
+
+    return EvalSummary(
+        ndcg_at_10=float(np.mean(ndcg_values)),
+        mrr_at_10=float(np.mean(mrr_values)),
+        recall_at_10=float(np.mean(recall10_values)),
+        recall_at_50=float(np.mean(recall50_values)),
+        recall_at_100=float(np.mean(recall100_values)),
+        map_at_10=float(np.mean(map10_values)),
+    )
+
+
+def write_rankings_csv(
+    *,
+    model_name: str,
+    query_ids: list[str],
+    ranked_corpus_ids_by_query: dict[str, list[str]],
+    ranked_scores_by_query: dict[str, list[float]],
+    positives_by_query: dict[str, dict[str, float]],
+    rankings_path: Path,
+) -> None:
+    rankings_path.parent.mkdir(parents=True, exist_ok=True)
+    with rankings_path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "model",
+                "query_id",
+                "rank",
+                "corpus_id",
+                "score",
+                "is_relevant",
+                "relevance",
+            ]
+        )
+
+        for query_id in query_ids:
+            relevant_docs = positives_by_query[query_id]
+            ranked_ids = ranked_corpus_ids_by_query[query_id]
+            ranked_scores = ranked_scores_by_query[query_id]
+
+            for rank, (corpus_id, score) in enumerate(
+                zip(ranked_ids, ranked_scores, strict=True),
+                start=1,
+            ):
+                relevance = relevant_docs.get(corpus_id, 0.0)
+                writer.writerow(
+                    [
+                        model_name,
+                        query_id,
+                        rank,
+                        corpus_id,
+                        float(score),
+                        int(relevance > 0),
+                        relevance,
+                    ]
+                )
+
+
 def score_and_write_rankings(
     *,
     model_name: str,
