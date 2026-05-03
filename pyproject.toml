@@ -1,20 +1,36 @@
 [project]
 name = "scholarrag"
 version = "0.1.0"
-description = "Initial dataset inspection for ScholarRAG"
+description = "Scientific retrieval augmented generation over OpenArXiv."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "adapters>=1.2.0",
     "datasets>=3.0.0",
+    "fastapi>=0.115.0",
     "huggingface_hub>=0.30.0",
     "matplotlib>=3.9.0",
     "numpy>=2.0.0",
+    "openai>=1.50.0",
+    "pydantic-settings>=2.5.0",
+    "qdrant-client>=1.11.0",
     "sentence-transformers>=3.0.0",
     "torch>=2.4.0",
     "tqdm>=4.66.0",
     "transformers>=4.51.0",
+    "uvicorn[standard]>=0.30.0",
 ]
+
+[project.scripts]
+scholarrag = "scholarrag.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["scholarrag*"]
 
 [build-system]
 requires = ["setuptools>=68"]
