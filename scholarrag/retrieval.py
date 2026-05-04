@@ -1,11 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from scholarrag.config import Settings
 from scholarrag.embeddings import EmbeddingGemmaEmbedder
-from scholarrag.vectorstores.qdrant_store import QdrantVectorStore
+from scholarrag.vectorstores.qdrant_store import RetrievedPoint
+
+
+class VectorStore(Protocol):
+    collection_name: str
+    backend: str
+
+    def search(
+        self,
+        vector: list[float],
+        *,
+        limit: int,
+        filters: dict[str, Any] | None = None,
+    ) -> list[RetrievedPoint]:
+        ...
 
 
 @dataclass(frozen=True)
@@ -34,7 +48,7 @@ class RetrievalService:
         *,
         settings: Settings,
         embedder: EmbeddingGemmaEmbedder,
-        vector_store: QdrantVectorStore,
+        vector_store: VectorStore,
     ) -> None:
         self.settings = settings
         self.embedder = embedder
@@ -68,6 +82,7 @@ class RetrievalService:
             "candidate_k": candidate_k,
             "returned_k": min(final_k, len(chunks)),
             "collection": self.vector_store.collection_name,
+            "backend": getattr(self.vector_store, "backend", "qdrant"),
             "reranker": None,
         }
         return chunks[:final_k], retrieval_info

@@ -53,6 +53,30 @@ Start Qdrant separately:
 docker run -p 6333:6333 qdrant/qdrant
 ```
 
+For a FAISS-backed local test using Colab-generated artifacts, copy these files
+from Google Drive to your machine:
+
+```text
+open_arxiv_ivfpq.faiss
+open_arxiv_chunks.sqlite
+manifest.json
+```
+
+Then start the API with FAISS settings:
+
+```bash
+export SCHOLARRAG_VECTOR_BACKEND=faiss
+export SCHOLARRAG_FAISS_INDEX_PATH=/absolute/path/to/open_arxiv_ivfpq.faiss
+export SCHOLARRAG_FAISS_SQLITE_PATH=/absolute/path/to/open_arxiv_chunks.sqlite
+export SCHOLARRAG_LLM_BASE_URL=https://api.openai.com/v1
+export SCHOLARRAG_LLM_API_KEY=<your-api-key>
+export SCHOLARRAG_LLM_MODEL=gpt-4o-mini
+scholarrag serve-api --host 127.0.0.1 --port 8080
+```
+
+If no reachable LLM endpoint is configured, `/query` still returns retrieved
+sources and an answer-generation-unavailable message.
+
 Start vLLM separately. The default final-answer model is `Qwen/Qwen3.5-9B`,
 chosen for the Colab/L4 or small-GPU target because it is stronger than the
 older 8B choice while still being realistic with a constrained context length.
@@ -113,8 +137,14 @@ Useful defaults:
 ```text
 SCHOLARRAG_QDRANT_URL=http://localhost:6333
 SCHOLARRAG_QDRANT_COLLECTION=open_arxiv_embeddinggemma_fact_check_768_cosine
+SCHOLARRAG_VECTOR_BACKEND=qdrant
+SCHOLARRAG_FAISS_INDEX_PATH=data/faiss/open_arxiv_ivfpq.faiss
+SCHOLARRAG_FAISS_SQLITE_PATH=data/faiss/open_arxiv_chunks.sqlite
 SCHOLARRAG_VLLM_BASE_URL=http://localhost:8000/v1
 SCHOLARRAG_VLLM_MODEL=Qwen/Qwen3.5-9B
+SCHOLARRAG_LLM_BASE_URL=<OpenAI-compatible base URL, optional alias>
+SCHOLARRAG_LLM_API_KEY=<OpenAI-compatible API key, optional alias>
+SCHOLARRAG_LLM_MODEL=<OpenAI-compatible model, optional alias>
 SCHOLARRAG_SQLITE_PATH=data/scholarrag.sqlite3
 HF_TOKEN=<token for gated Hugging Face models, if needed>
 ```
