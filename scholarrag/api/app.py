@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 
 from scholarrag.api.schemas import (
     HealthResponse,
@@ -21,12 +22,20 @@ from scholarrag.storage import SQLiteStore
 from scholarrag.vectorstores.qdrant_store import QdrantVectorStore
 
 
+def build_vector_store(settings: Settings) -> Any:
+    if settings.vector_backend == "faiss":
+        from scholarrag.vectorstores.faiss_store import FaissVectorStore
+
+        return FaissVectorStore(settings)
+    return QdrantVectorStore(settings)
+
+
 @lru_cache(maxsize=1)
 def get_services() -> tuple[
     Settings,
     SQLiteStore,
     EmbeddingGemmaEmbedder,
-    QdrantVectorStore,
+    Any,
     RetrievalService,
     VLLMAnswerGenerator,
 ]:
@@ -34,7 +43,7 @@ def get_services() -> tuple[
     store = SQLiteStore(settings.sqlite_path)
     store.init_db()
     embedder = EmbeddingGemmaEmbedder(settings)
-    vector_store = QdrantVectorStore(settings)
+    vector_store = build_vector_store(settings)
     retriever = RetrievalService(
         settings=settings,
         embedder=embedder,
@@ -50,9 +59,23 @@ def create_app() -> FastAPI:
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         settings = get_settings()
+        faiss_index_exists = None
+        faiss_sqlite_exists = None
+        faiss_index_path = None
+        faiss_sqlite_path = None
+        if settings.vector_backend == "faiss":
+            faiss_index_path = str(settings.faiss_index_path)
+            faiss_sqlite_path = str(settings.faiss_sqlite_path)
+            faiss_index_exists = settings.faiss_index_path.exists()
+            faiss_sqlite_exists = settings.faiss_sqlite_path.exists()
         return HealthResponse(
             status="ok",
+            vector_backend=settings.vector_backend,
             qdrant_collection=settings.qdrant_collection,
+            faiss_index_path=faiss_index_path,
+            faiss_sqlite_path=faiss_sqlite_path,
+            faiss_index_exists=faiss_index_exists,
+            faiss_sqlite_exists=faiss_sqlite_exists,
             embedding_model=settings.embedding_model_id,
             embedding_dimension=settings.embedding_dimension,
             vllm_model=settings.vllm_model,
@@ -91,6 +114,15 @@ def create_app() -> FastAPI:
         background_tasks: BackgroundTasks,
     ) -> IngestOpenArxivResponse:
         settings, store, embedder, vector_store, _retriever, _generator = get_services()
+        if settings.vector_backend != "qdrant":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "OpenArXiv API ingestion currently writes to Qdrant only. "
+                    "Use the Colab notebook to build FAISS artifacts."
+                ),
+            )
+
         job_id = str(uuid4())
         store.create_ingestion_job(
             job_id=job_id,

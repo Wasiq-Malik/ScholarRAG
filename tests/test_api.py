@@ -63,3 +63,50 @@ def test_query_endpoint_returns_answer_sources_and_models(monkeypatch) -> None:
     assert body["sources"][0]["paper_id"] == "paper-1"
     assert body["models"]["embedding"] == settings.embedding_model_id
     assert body["models"]["llm"] == settings.vllm_model
+
+
+def test_health_reports_faiss_backend(monkeypatch, tmp_path) -> None:
+    index_path = tmp_path / "index.faiss"
+    sqlite_path = tmp_path / "chunks.sqlite"
+    index_path.write_bytes(b"index")
+    sqlite_path.write_bytes(b"sqlite")
+    settings = Settings(
+        vector_backend="faiss",
+        faiss_index_path=index_path,
+        faiss_sqlite_path=sqlite_path,
+    )
+
+    monkeypatch.setattr(app_module, "get_settings", lambda: settings)
+    client = TestClient(app_module.create_app())
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["vector_backend"] == "faiss"
+    assert body["faiss_index_path"] == str(index_path)
+    assert body["faiss_sqlite_path"] == str(sqlite_path)
+    assert body["faiss_index_exists"] is True
+    assert body["faiss_sqlite_exists"] is True
+
+
+def test_faiss_backend_rejects_api_ingestion(monkeypatch) -> None:
+    settings = Settings(vector_backend="faiss")
+
+    def fake_services():
+        return (
+            settings,
+            FakeStore(),
+            object(),
+            object(),
+            FakeRetriever(),
+            FakeGenerator(),
+        )
+
+    monkeypatch.setattr(app_module, "get_services", fake_services)
+    client = TestClient(app_module.create_app())
+
+    response = client.post("/ingest/open-arxiv", json={"limit": 1})
+
+    assert response.status_code == 400
+    assert "Qdrant only" in response.json()["detail"]

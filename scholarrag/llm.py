@@ -70,10 +70,16 @@ class VLLMAnswerGenerator:
         if not chunks:
             return "The retrieved evidence is insufficient to answer this question."
 
-        response = self._get_client().chat.completions.create(
-            model=self.settings.vllm_model,
-            messages=build_answer_messages(question, chunks),
-            temperature=self.settings.vllm_temperature,
-            max_tokens=self.settings.vllm_max_tokens,
-        )
+        try:
+            response = self._get_client().chat.completions.create(
+                model=self.settings.vllm_model,
+                messages=build_answer_messages(question, chunks),
+                temperature=self.settings.vllm_temperature,
+                max_tokens=self.settings.vllm_max_tokens,
+            )
+        except Exception as exc:
+            return (
+                "Answer generation is unavailable, but retrieval succeeded. "
+                f"Configure an OpenAI-compatible LLM endpoint to generate answers. ({exc})"
+            )
         return str(response.choices[0].message.content or "").strip()

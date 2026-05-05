@@ -41,7 +41,12 @@ class IngestOpenArxivResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+    vector_backend: str
     qdrant_collection: str
+    faiss_index_path: str | None = None
+    faiss_sqlite_path: str | None = None
+    faiss_index_exists: bool | None = None
+    faiss_sqlite_exists: bool | None = None
     embedding_model: str
     embedding_dimension: int
     vllm_model: str

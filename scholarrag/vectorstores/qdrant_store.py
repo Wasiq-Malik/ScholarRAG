@@ -36,6 +36,8 @@ def build_payload_filter(filters: dict[str, Any] | None) -> Any | None:
 
 
 class QdrantVectorStore:
+    backend = "qdrant"
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._client: Any | None = None

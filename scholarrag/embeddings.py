@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import hashlib
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -41,6 +42,8 @@ class EmbeddingGemmaEmbedder:
         return self.settings.embedding_dimension
 
     def _load_model(self) -> Any:
+        if self.settings.embedding_model_id == "local/hash-embedding":
+            return None
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
@@ -86,6 +89,18 @@ class EmbeddingGemmaEmbedder:
         if not texts:
             return []
         import numpy as np
+
+        if self.settings.embedding_model_id == "local/hash-embedding":
+            vectors = np.zeros((len(texts), self.settings.embedding_dimension), dtype=np.float32)
+            for row_index, text in enumerate(texts):
+                for token in text.lower().split():
+                    digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+                    bucket = int.from_bytes(digest[:4], "little") % self.settings.embedding_dimension
+                    sign = 1.0 if digest[4] & 1 else -1.0
+                    vectors[row_index, bucket] += sign
+            norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+            vectors = vectors / np.maximum(norms, 1e-12)
+            return vectors.tolist()
 
         model = self._load_model()
         embeddings = model.encode(
