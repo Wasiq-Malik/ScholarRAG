@@ -23,7 +23,7 @@ import remarkGfm from "remark-gfm";
 import type { HealthResponse, QuerySource, RetrieveResponse } from "@/types/scholarrag";
 
 const EXAMPLE_QUERIES = [
-  "is Agentic AI being used for further scientific discovery in AI?",
+  "is Agentic AI being used for scientific discovery?",
   "are vision language models tensor parallelized during inference?",
   "have VLMs been used for Tuberculosis detection?",
 ];
