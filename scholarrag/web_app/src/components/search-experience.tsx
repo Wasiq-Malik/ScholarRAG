@@ -563,20 +563,16 @@ function SearchMeta({
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-[var(--muted)]">
-      <span>{loading ? "Retrieving papers" : `${resultCount} retrieved papers`}</span>
+      <span>{loading ? "Searching" : `${resultCount} search results`}</span>
       <span>·</span>
       <span>{loading ? "Measuring latency" : formatLatencyMs(latencyMs)}</span>
       <span>·</span>
       <span>
         {health?.vector_backend
           ? health.vector_backend === "mock"
-            ? "Mock preview mode"
+            ? "Mock backend"
             : `${health.vector_backend.toUpperCase()} backend`
           : "Backend status unknown"}
-      </span>
-      <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs">
-        <Sparkles size={13} />
-        AI overview stream
       </span>
     </div>
   );
@@ -643,7 +639,7 @@ function AiOverview({
                       <button
                         type="button"
                         onClick={() => onCitationClick(citationIndex)}
-                        className="rounded px-0.5 font-medium text-[var(--accent)] underline decoration-[#9fc2fb] underline-offset-2 transition hover:text-[var(--accent-strong)]"
+                        className="mx-0.5 inline-flex h-6 items-center rounded-full border border-[#c9dcfb] bg-[#eef5ff] px-2 text-[12px] font-semibold leading-none text-[#1558d6] transition hover:border-[#9fc2fb] hover:bg-[#e4efff] hover:text-[#0b57d0]"
                       >
                         {children}
                       </button>
@@ -751,7 +747,8 @@ function ResultsList({
         <article
           key={source.point_id}
           id={`result-${source.point_id}`}
-          className={`rounded-lg border bg-white p-4 shadow-sm transition hover:border-[#aeb9cc] hover:shadow-md sm:p-5 ${
+          onClick={() => onSelect(source.point_id)}
+          className={`rounded-lg border bg-white p-4 shadow-sm transition hover:border-[#aeb9cc] hover:shadow-md sm:p-5 xl:cursor-pointer ${
             selectedId === source.point_id ? "border-[#84aef0]" : "border-[#dfe5ef]"
           }`}
         >
@@ -770,7 +767,8 @@ function ResultsList({
                   href={source.arxiv_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-full border border-[#d8dfeb] bg-white px-3 text-xs font-medium text-[#253044] transition hover:border-[#aeb9cc] hover:bg-[#f8faff]"
+                  onClick={(event) => event.stopPropagation()}
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-full border border-[#d8dfeb] bg-white px-3 text-xs font-medium text-[#253044] transition hover:border-[#aeb9cc] hover:bg-[#f8faff] xl:hidden"
                   aria-label={`Open ${source.title || "paper"} on arXiv`}
                 >
                   arXiv
@@ -782,20 +780,14 @@ function ResultsList({
                   href={pdfUrl(source) || undefined}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-full border border-[#d8dfeb] bg-white px-3 text-xs font-medium text-[#253044] transition hover:border-[#aeb9cc] hover:bg-[#f8faff]"
+                  onClick={(event) => event.stopPropagation()}
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-full border border-[#d8dfeb] bg-white px-3 text-xs font-medium text-[#253044] transition hover:border-[#aeb9cc] hover:bg-[#f8faff] xl:hidden"
                   aria-label={`Open PDF for ${source.title || "paper"}`}
                 >
                   PDF
                   <ArrowUpRight size={14} />
                 </a>
               ) : null}
-              <button
-                type="button"
-                onClick={() => onSelect(source.point_id)}
-                className="hidden h-8 items-center justify-center rounded-full border border-[#d8dfeb] bg-white px-3 text-xs font-medium text-[#253044] transition hover:border-[#aeb9cc] hover:bg-[#f8faff] xl:inline-flex"
-              >
-                Inspect
-              </button>
             </div>
           </div>
           <h3 className="mb-2 text-base font-medium leading-6 text-[#102a5c] sm:text-lg">
@@ -804,6 +796,7 @@ function ResultsList({
                 href={source.arxiv_url}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(event) => event.stopPropagation()}
                 className="transition hover:text-[#1558d6] hover:underline"
               >
                 {source.title || "Untitled paper"}

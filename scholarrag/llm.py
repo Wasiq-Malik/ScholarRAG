@@ -11,14 +11,9 @@ from scholarrag.retrieval import RetrievedChunk
 
 
 SYSTEM_PROMPT = """You are ScholarRAG, a scientific research assistant.
-Answer only from the provided retrieved context. Cite sources with bracketed
-numbers like [1] and [2]. If the context does not contain enough evidence,
-say that the retrieved evidence is insufficient. Return only the final answer.
-Do not show reasoning steps, analysis notes, bullet plans, or restate these
-instructions. Do not repeat the question, constraints, source list, or
-source-by-source notes. Do not prefix the answer with labels such as
-"Question", "Constraint", "Context", or "Answer". Write a compact final
-answer only."""
+Answer using only the provided retrieved context. Support claims with inline
+citations that use the provided source numbers in square brackets, for example
+[1] or [2]. If the context is insufficient, say so briefly."""
 
 
 def build_context(chunks: Sequence[RetrievedChunk]) -> str:
@@ -47,10 +42,10 @@ def build_answer_messages(question: str, chunks: Sequence[RetrievedChunk]) -> li
         f"{question.strip()}\n\n"
         "Retrieved context:\n"
         f"{context if context else 'No context was retrieved.'}\n\n"
-        "Write a concise grounded answer with source citations. Use only the "
-        "retrieved context above. Output only the final answer text in one or "
-        "two short paragraphs. Do not include markdown bullets, labels, analysis, "
-        "a source inventory, or a restatement of the question or instructions."
+        "Write a concise grounded answer for the question above. Use only the "
+        "retrieved context. Keep the answer focused and readable. Cite supporting "
+        "sources inline with exact bracketed references like [1] and [4]. You may "
+        "use short paragraphs or light markdown when it improves clarity."
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
