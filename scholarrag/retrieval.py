@@ -40,12 +40,14 @@ class RetrievedChunk:
         return {
             "point_id": self.point_id,
             "score": self.score,
+            "confidence_score": self.score,
             "paper_id": self.metadata.get("paper_id"),
             "arxiv_url": arxiv_abs_url(self.metadata.get("paper_id")),
             "chunk_id": self.metadata.get("chunk_id"),
             "title": self.metadata.get("title"),
             "categories": self.metadata.get("categories", []),
             "update_date": self.metadata.get("update_date"),
+            "text": self.text,
             "text_preview": self.text[:500],
         }
 

@@ -13,7 +13,7 @@ from urllib.request import urlopen
 
 DEFAULT_RUN_DIR = Path(
     "/content/drive/MyDrive/scholarrag/"
-    "open_arxiv_embeddinggemma_fact_check_cs_100k_from_2020_recent_ivfflat"
+    "open_arxiv_embeddinggemma_fact_check_full_from_2020_recent_ivfpq"
 )
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import json
+from typing import Iterator
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -82,6 +83,20 @@ class GeminiAnswerGenerator:
                 f"Gemini API could not generate an answer. ({exc})"
             )
         return response.strip()
+
+    def stream_answer(
+        self,
+        *,
+        question: str,
+        chunks: Sequence[RetrievedChunk],
+        chunk_chars: int = 160,
+    ) -> Iterator[str]:
+        answer = self.answer(question=question, chunks=chunks)
+        text = answer.strip()
+        if not text:
+            return
+        for start in range(0, len(text), chunk_chars):
+            yield text[start : start + chunk_chars]
 
     def _generate(self, *, system_prompt: str, user_prompt: str) -> str:
         model = self.settings.gemini_model.removeprefix("models/")

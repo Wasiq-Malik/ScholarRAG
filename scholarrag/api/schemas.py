@@ -5,29 +5,45 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class QueryRequest(BaseModel):
+class RetrieveRequest(BaseModel):
     question: str = Field(min_length=1)
-    top_k: int = Field(default=10, ge=1, le=50)
+    top_k: int = Field(default=50, ge=1, le=50)
     filters: dict[str, Any] = Field(default_factory=dict)
 
 
 class QuerySource(BaseModel):
     point_id: str
     score: float
+    confidence_score: float
     paper_id: str | None = None
     arxiv_url: str | None = None
     chunk_id: int | None = None
     title: str | None = None
     categories: list[str] = Field(default_factory=list)
     update_date: str | None = None
+    text: str | None = None
     text_preview: str
 
 
-class QueryResponse(BaseModel):
-    answer: str
+class RetrieveResponse(BaseModel):
     sources: list[QuerySource]
     retrieval: dict[str, Any]
     models: dict[str, str]
+
+
+class AnswerStreamRequest(BaseModel):
+    question: str = Field(min_length=1)
+    sources: list[QuerySource] = Field(default_factory=list)
+
+
+class QueryRequest(BaseModel):
+    question: str = Field(min_length=1)
+    top_k: int = Field(default=10, ge=1, le=50)
+    filters: dict[str, Any] = Field(default_factory=dict)
+
+
+class QueryResponse(RetrieveResponse):
+    answer: str
 
 
 class IngestOpenArxivRequest(BaseModel):

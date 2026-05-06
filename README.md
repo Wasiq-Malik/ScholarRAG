@@ -7,6 +7,7 @@ The repo now has three tracks:
 - `benchmarks/scifact/`: retrieval and reranker benchmarking.
 - `experiments/`: Colab notebooks for larger OpenArXiv indexing and follow-on model work.
 - `scholarrag/`: app code for ingestion, retrieval, vector-store access, and answer generation.
+- `scholarrag/web_app/`: Next.js search UI for the ScholarRAG API.
 
 ## Quick start
 
@@ -165,6 +166,29 @@ python scripts/colab_launch_api.py --install-ngrok
 
 It prints `/health` and public tunnel URLs when available. If you use a
 different FAISS run folder, pass `--run-dir /content/drive/MyDrive/...`.
+
+## Web UI
+
+The frontend lives in `scholarrag/web_app` and proxies requests to the
+ScholarRAG backend through Next.js route handlers.
+
+```bash
+cd scholarrag/web_app
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+Default local/backend config:
+
+```text
+SCHOLARRAG_API_BASE_URL=https://complete-jay-strictly.ngrok-free.app
+```
+
+The first UI version uses the existing blocking `/query` endpoint. The intended
+next step is to split backend retrieval and answer generation into `/retrieve`
+and `/answer/stream` so ranked papers render immediately while the AI Overview
+streams.
 
 ## Production commands
 

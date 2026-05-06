@@ -1,24 +1,30 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 import traceback
 from typing import Any
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 
 from scholarrag.api.schemas import (
+    AnswerStreamRequest,
     HealthResponse,
     IngestOpenArxivRequest,
     IngestOpenArxivResponse,
     QueryRequest,
     QueryResponse,
+    QuerySource,
+    RetrieveRequest,
+    RetrieveResponse,
 )
 from scholarrag.config import Settings, get_settings
 from scholarrag.embeddings import EmbeddingGemmaEmbedder
 from scholarrag.ingest import OpenArxivIndexer
 from scholarrag.llm import GeminiAnswerGenerator
-from scholarrag.retrieval import RetrievalService
+from scholarrag.retrieval import RetrievalService, RetrievedChunk
 from scholarrag.storage import SQLiteStore
 from scholarrag.vectorstores.qdrant_store import QdrantVectorStore
 
@@ -57,6 +63,21 @@ def get_services() -> tuple[
 def create_app() -> FastAPI:
     app = FastAPI(title="ScholarRAG", version="0.1.0")
 
+    def build_retrieved_chunks(
+        *,
+        retriever: RetrievalService,
+        question: str,
+        top_k: int,
+        filters: dict[str, Any],
+    ) -> tuple[list[Any], dict[str, Any]]:
+        return retriever.retrieve(question, top_k=top_k, filters=filters)
+
+    def response_models(settings: Settings) -> dict[str, str]:
+        return {
+            "embedding": settings.embedding_model_id,
+            "llm": settings.gemini_model,
+        }
+
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         settings = get_settings()
@@ -82,12 +103,73 @@ def create_app() -> FastAPI:
             llm_model=settings.gemini_model,
         )
 
+    @app.post("/retrieve", response_model=RetrieveResponse)
+    def retrieve(request: RetrieveRequest) -> RetrieveResponse:
+        settings, _store, _embedder, _vector_store, retriever, _generator = get_services()
+        try:
+            chunks, retrieval_info = build_retrieved_chunks(
+                retriever=retriever,
+                question=request.question,
+                top_k=request.top_k,
+                filters=request.filters,
+            )
+            return RetrieveResponse(
+                sources=[chunk.source_dict() for chunk in chunks],
+                retrieval=retrieval_info,
+                models=response_models(settings),
+            )
+        except Exception as exc:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/answer/stream")
+    def answer_stream(request: AnswerStreamRequest) -> StreamingResponse:
+        settings, store, _embedder, _vector_store, _retriever, generator = get_services()
+
+        chunks = [
+            RetrievedChunk(
+                point_id=source.point_id,
+                score=source.score,
+                text=source.text or source.text_preview,
+                metadata={
+                    "paper_id": source.paper_id,
+                    "chunk_id": source.chunk_id,
+                    "title": source.title,
+                    "categories": source.categories,
+                    "update_date": source.update_date,
+                },
+            )
+            for source in request.sources
+        ]
+
+        def event_stream():
+            try:
+                accumulated = ""
+                for piece in generator.stream_answer(question=request.question, chunks=chunks):
+                    accumulated += piece
+                    yield f"event: chunk\ndata: {json.dumps({'text': piece})}\n\n"
+                store.log_query(
+                    query_id=str(uuid4()),
+                    question=request.question,
+                    answer=accumulated,
+                    sources=[source.model_dump() for source in request.sources],
+                    model=settings.gemini_model,
+                )
+                yield "event: done\ndata: {}\n\n"
+            except Exception as exc:
+                traceback.print_exc()
+                error_payload = {"detail": f"{type(exc).__name__}: {exc}"}
+                yield f"event: error\ndata: {json.dumps(error_payload)}\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
     @app.post("/query", response_model=QueryResponse)
     def query(request: QueryRequest) -> QueryResponse:
         settings, store, _embedder, _vector_store, retriever, generator = get_services()
         try:
-            chunks, retrieval_info = retriever.retrieve(
-                request.question,
+            chunks, retrieval_info = build_retrieved_chunks(
+                retriever=retriever,
+                question=request.question,
                 top_k=request.top_k,
                 filters=request.filters,
             )
@@ -104,10 +186,7 @@ def create_app() -> FastAPI:
                 answer=answer,
                 sources=sources,
                 retrieval=retrieval_info,
-                models={
-                    "embedding": settings.embedding_model_id,
-                    "llm": settings.gemini_model,
-                },
+                models=response_models(settings),
             )
         except Exception as exc:
             traceback.print_exc()
