@@ -28,6 +28,8 @@ const EXAMPLE_QUERIES = [
 
 const PAGE_SIZE = 10;
 const RETRIEVE_TOP_K = 50;
+const ANSWER_CONTEXT_K = 10;
+const STREAM_STEP_MS = 18;
 
 type ResultsState =
   | { status: "idle" }
@@ -45,6 +47,38 @@ function confidenceLabel(source: QuerySource): string {
   return source.confidence_score.toFixed(2);
 }
 
+function healthPillState(health: HealthResponse | null): {
+  label: string;
+  className: string;
+} {
+  if (!health) {
+    return {
+      label: "Checking backend",
+      className:
+        "border-[#f3d58a] bg-[#fff8e6] text-[#8a6110] shadow-[0_10px_24px_rgba(245,158,11,0.14)]",
+    };
+  }
+  if (health.status !== "ok" || health.vector_backend === "unavailable") {
+    return {
+      label: health.detail || "Backend unavailable",
+      className:
+        "border-[#efb1b1] bg-[#fff1f1] text-[#a12626] shadow-[0_10px_24px_rgba(239,68,68,0.12)]",
+    };
+  }
+  if (health.vector_backend === "mock") {
+    return {
+      label: "Mock dataset active",
+      className:
+        "border-[#f3d58a] bg-[#fff8e6] text-[#8a6110] shadow-[0_10px_24px_rgba(245,158,11,0.14)]",
+    };
+  }
+  return {
+    label: `${health.vector_backend.toUpperCase()} index online`,
+    className:
+      "border-[#b6e1c0] bg-[#edf9f0] text-[#1f6b3a] shadow-[0_10px_24px_rgba(34,197,94,0.12)]",
+  };
+}
+
 function formatLatencyMs(value: number | null): string {
   if (value === null || !Number.isFinite(value)) {
     return "Latency unavailable";
@@ -60,6 +94,11 @@ function pdfUrl(source: QuerySource): string | null {
     return null;
   }
   return `https://arxiv.org/pdf/${source.paper_id}`;
+}
+
+function splitStreamText(text: string): string[] {
+  const pieces = text.match(/\S+\s*|\s+/g);
+  return pieces && pieces.length ? pieces : [text];
 }
 
 async function streamOverview(
@@ -86,6 +125,23 @@ async function streamOverview(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  const pendingPieces: string[] = [];
+  let streamClosed = false;
+
+  const smoothDrain = (async () => {
+    while (!streamClosed || pendingPieces.length > 0) {
+      if (!pendingPieces.length) {
+        await new Promise((resolve) => setTimeout(resolve, STREAM_STEP_MS));
+        continue;
+      }
+      const piece = pendingPieces.shift();
+      if (!piece) {
+        continue;
+      }
+      onChunk(piece);
+      await new Promise((resolve) => setTimeout(resolve, STREAM_STEP_MS));
+    }
+  })();
 
   while (true) {
     const { done, value } = await reader.read();
@@ -114,16 +170,23 @@ async function streamOverview(
       const payload = JSON.parse(dataText) as { text?: string; detail?: string };
 
       if (eventName === "chunk" && payload.text) {
-        onChunk(payload.text);
+        pendingPieces.push(...splitStreamText(payload.text));
       }
       if (eventName === "error") {
+        streamClosed = true;
+        await smoothDrain;
         throw new Error(payload.detail || "Overview streaming failed");
       }
       if (eventName === "done") {
+        streamClosed = true;
+        await smoothDrain;
         return;
       }
     }
   }
+
+  streamClosed = true;
+  await smoothDrain;
 }
 
 function ScholarRagLogo() {
@@ -244,6 +307,7 @@ export function SearchExperience() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resultsState, setResultsState] = useState<ResultsState>({ status: "idle" });
   const [overviewState, setOverviewState] = useState<OverviewState>({ status: "idle", text: "" });
+  const [retrieveLatencyMs, setRetrieveLatencyMs] = useState<number | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
@@ -287,8 +351,10 @@ export function SearchExperience() {
     setShowSuggestions(false);
     setResultsState({ status: "loading" });
     setOverviewState({ status: "loading", text: "" });
+    setRetrieveLatencyMs(null);
 
     try {
+      const retrieveStart = performance.now();
       const retrieveResponse = await fetch("/api/retrieve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -298,10 +364,12 @@ export function SearchExperience() {
           filters: {},
         }),
       });
+      const retrieveElapsedMs = performance.now() - retrieveStart;
       const retrieveData = await retrieveResponse.json();
       if (!retrieveResponse.ok) {
         throw new Error(retrieveData.detail || "Retrieval failed");
       }
+      setRetrieveLatencyMs(retrieveElapsedMs);
 
       setResultsState({ status: "success", data: retrieveData });
       setSelectedId(retrieveData.sources?.[0]?.point_id || null);
@@ -309,7 +377,7 @@ export function SearchExperience() {
       let streamedText = "";
       setOverviewState({ status: "loading", text: "" });
       try {
-        await streamOverview(normalized, retrieveData.sources, (piece) => {
+        await streamOverview(normalized, retrieveData.sources.slice(0, ANSWER_CONTEXT_K), (piece) => {
           streamedText += piece;
           setOverviewState({ status: "loading", text: streamedText });
         });
@@ -341,6 +409,7 @@ export function SearchExperience() {
 
   const hasResults = resultsState.status === "success";
   const isLoading = resultsState.status === "loading";
+  const backendPill = healthPillState(health);
 
   return (
     <main className="min-h-screen">
@@ -377,13 +446,11 @@ export function SearchExperience() {
             <ScholarRagLogo />
           </div>
           <div className="mb-8 text-center">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#d6ddeb] bg-white px-3 py-1 text-xs font-medium text-[var(--muted)]">
+            <div
+              className={`mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${backendPill.className}`}
+            >
               <Activity size={14} />
-              {health
-                ? health.vector_backend === "mock"
-                  ? "Mock dataset active"
-                  : `${health.vector_backend.toUpperCase()} index online`
-                : "Checking backend"}
+              {backendPill.label}
             </div>
             <div className="mx-auto max-w-3xl text-sm text-[var(--muted)]">
               Search over 1.5 million arXiv papers from 2020 onward.
@@ -408,11 +475,7 @@ export function SearchExperience() {
               health={health}
               resultCount={sources.length}
               loading={isLoading}
-              latencyMs={
-                resultsState.status === "success"
-                  ? Number(resultsState.data.retrieval.search_ms ?? resultsState.data.retrieval.latency_ms ?? NaN)
-                  : null
-              }
+              latencyMs={retrieveLatencyMs}
             />
             <AiOverview state={overviewState} />
             <ResultsToolbar

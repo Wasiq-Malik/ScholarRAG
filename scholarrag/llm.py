@@ -15,7 +15,10 @@ Answer only from the provided retrieved context. Cite sources with bracketed
 numbers like [1] and [2]. If the context does not contain enough evidence,
 say that the retrieved evidence is insufficient. Return only the final answer.
 Do not show reasoning steps, analysis notes, bullet plans, or restate these
-instructions."""
+instructions. Do not repeat the question, constraints, source list, or
+source-by-source notes. Do not prefix the answer with labels such as
+"Question", "Constraint", "Context", or "Answer". Write a compact final
+answer only."""
 
 
 def build_context(chunks: Sequence[RetrievedChunk]) -> str:
@@ -44,9 +47,10 @@ def build_answer_messages(question: str, chunks: Sequence[RetrievedChunk]) -> li
         f"{question.strip()}\n\n"
         "Retrieved context:\n"
         f"{context if context else 'No context was retrieved.'}\n\n"
-        "Write a concise grounded answer with source citations. Output only the "
-        "answer text. Do not include markdown bullets, labels, analysis, or a "
-        "restatement of the question/context."
+        "Write a concise grounded answer with source citations. Use only the "
+        "retrieved context above. Output only the final answer text in one or "
+        "two short paragraphs. Do not include markdown bullets, labels, analysis, "
+        "a source inventory, or a restatement of the question or instructions."
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},

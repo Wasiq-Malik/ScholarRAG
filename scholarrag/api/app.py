@@ -125,6 +125,7 @@ def create_app() -> FastAPI:
     @app.post("/answer/stream")
     def answer_stream(request: AnswerStreamRequest) -> StreamingResponse:
         settings, store, _embedder, _vector_store, _retriever, generator = get_services()
+        answer_sources = request.sources[: settings.retrieval_context_k]
 
         chunks = [
             RetrievedChunk(
@@ -139,7 +140,7 @@ def create_app() -> FastAPI:
                     "update_date": source.update_date,
                 },
             )
-            for source in request.sources
+            for source in answer_sources
         ]
 
         def event_stream():
@@ -152,7 +153,7 @@ def create_app() -> FastAPI:
                     query_id=str(uuid4()),
                     question=request.question,
                     answer=accumulated,
-                    sources=[source.model_dump() for source in request.sources],
+                    sources=[source.model_dump() for source in answer_sources],
                     model=settings.gemini_model,
                 )
                 yield "event: done\ndata: {}\n\n"
@@ -181,7 +182,10 @@ def create_app() -> FastAPI:
                 top_k=request.top_k,
                 filters=request.filters,
             )
-            answer = generator.answer(question=request.question, chunks=chunks)
+            answer = generator.answer(
+                question=request.question,
+                chunks=chunks[: settings.retrieval_context_k],
+            )
             sources = [chunk.source_dict() for chunk in chunks]
             store.log_query(
                 query_id=str(uuid4()),
