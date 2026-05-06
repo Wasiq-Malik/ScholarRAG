@@ -17,6 +17,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import type { HealthResponse, QuerySource, RetrieveResponse } from "@/types/scholarrag";
 
@@ -30,6 +32,7 @@ const PAGE_SIZE = 10;
 const RETRIEVE_TOP_K = 50;
 const ANSWER_CONTEXT_K = 10;
 const STREAM_STEP_MS = 18;
+const CITATION_LINK_PREFIX = "scholar-cite:";
 
 type ResultsState =
   | { status: "idle" }
@@ -99,6 +102,19 @@ function pdfUrl(source: QuerySource): string | null {
 function splitStreamText(text: string): string[] {
   const pieces = text.match(/\S+\s*|\s+/g);
   return pieces && pieces.length ? pieces : [text];
+}
+
+function linkifyCitations(text: string, maxCitation: number): string {
+  if (!text || maxCitation < 1) {
+    return text;
+  }
+  return text.replace(/\[(\d+)\]/g, (fullMatch, rawIndex: string) => {
+    const citationIndex = Number(rawIndex);
+    if (!Number.isInteger(citationIndex) || citationIndex < 1 || citationIndex > maxCitation) {
+      return fullMatch;
+    }
+    return `[${citationIndex}](${CITATION_LINK_PREFIX}${citationIndex})`;
+  });
 }
 
 async function streamOverview(
@@ -333,12 +349,36 @@ export function SearchExperience() {
   const sources = resultsState.status === "success" ? resultsState.data.sources : [];
   const totalPages = Math.max(1, Math.ceil(sources.length / PAGE_SIZE));
   const paginatedSources = sources.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const answerSources = sources.slice(0, ANSWER_CONTEXT_K);
   const selectedSource = useMemo(() => {
     if (!sources.length) {
       return null;
     }
     return sources.find((source) => source.point_id === selectedId) || sources[0];
   }, [selectedId, sources]);
+
+  function focusSource(source: QuerySource) {
+    const absoluteIndex = sources.findIndex((candidate) => candidate.point_id === source.point_id);
+    if (absoluteIndex === -1) {
+      return;
+    }
+    setPage(Math.floor(absoluteIndex / PAGE_SIZE) + 1);
+    setSelectedId(source.point_id);
+    window.setTimeout(() => {
+      document.getElementById(`result-${source.point_id}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 80);
+  }
+
+  function onCitationClick(citationIndex: number) {
+    const source = answerSources[citationIndex - 1];
+    if (!source) {
+      return;
+    }
+    focusSource(source);
+  }
 
   async function runSearch(nextQuery = query) {
     const normalized = nextQuery.trim();
@@ -477,7 +517,11 @@ export function SearchExperience() {
               loading={isLoading}
               latencyMs={retrieveLatencyMs}
             />
-            <AiOverview state={overviewState} />
+            <AiOverview
+              state={overviewState}
+              citationCount={answerSources.length}
+              onCitationClick={onCitationClick}
+            />
             <ResultsToolbar
               page={page}
               totalPages={totalPages}
@@ -538,7 +582,20 @@ function SearchMeta({
   );
 }
 
-function AiOverview({ state }: { state: OverviewState }) {
+function AiOverview({
+  state,
+  citationCount,
+  onCitationClick,
+}: {
+  state: OverviewState;
+  citationCount: number;
+  onCitationClick: (citationIndex: number) => void;
+}) {
+  const renderedMarkdown = useMemo(
+    () => linkifyCitations(state.text, citationCount),
+    [state.text, citationCount],
+  );
+
   return (
     <section className="relative mb-6 overflow-visible rounded-2xl border border-[#bfd5fb] bg-white shadow-[0_14px_36px_rgba(26,115,232,0.12)]">
       <div className="pointer-events-none absolute inset-x-4 -inset-y-2 -z-10 rounded-[28px] bg-[rgba(26,115,232,0.10)] blur-2xl" />
@@ -570,7 +627,44 @@ function AiOverview({ state }: { state: OverviewState }) {
           </div>
         ) : null}
         {state.text ? (
-          <p className="whitespace-pre-wrap text-[15px] leading-7 text-[#253044]">{state.text}</p>
+          <div className="scholarrag-markdown text-[15px] leading-7 text-[#253044]">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+                ul: ({ children }) => <ul className="mb-4 list-disc space-y-2 pl-6 last:mb-0">{children}</ul>,
+                ol: ({ children }) => <ol className="mb-4 list-decimal space-y-2 pl-6 last:mb-0">{children}</ol>,
+                li: ({ children }) => <li>{children}</li>,
+                strong: ({ children }) => <strong className="font-semibold text-[#172033]">{children}</strong>,
+                a: ({ href, children }) => {
+                  if (href?.startsWith(CITATION_LINK_PREFIX)) {
+                    const citationIndex = Number(href.slice(CITATION_LINK_PREFIX.length));
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => onCitationClick(citationIndex)}
+                        className="rounded px-0.5 font-medium text-[var(--accent)] underline decoration-[#9fc2fb] underline-offset-2 transition hover:text-[var(--accent-strong)]"
+                      >
+                        {children}
+                      </button>
+                    );
+                  }
+                  return (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-[var(--accent)] underline decoration-[#9fc2fb] underline-offset-2"
+                    >
+                      {children}
+                    </a>
+                  );
+                },
+              }}
+            >
+              {renderedMarkdown}
+            </ReactMarkdown>
+          </div>
         ) : null}
         {state.status === "error" ? (
           <div className="mt-3 flex items-start gap-3 text-sm text-[#9b1c1c]">
@@ -656,6 +750,7 @@ function ResultsList({
       {sources.map((source, index) => (
         <article
           key={source.point_id}
+          id={`result-${source.point_id}`}
           className={`rounded-lg border bg-white p-4 shadow-sm transition hover:border-[#aeb9cc] hover:shadow-md sm:p-5 ${
             selectedId === source.point_id ? "border-[#84aef0]" : "border-[#dfe5ef]"
           }`}

@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--nprobe", type=int, default=32)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--candidate-k", type=int, default=50)
-    parser.add_argument("--gemini-model", default=os.environ.get("GEMINI_MODEL", "gemma-4-31b-it"))
+    parser.add_argument("--gemini-model", default=os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview"))
     parser.add_argument(
         "--tunnel",
         choices=["none", "ngrok"],

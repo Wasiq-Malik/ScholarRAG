@@ -131,10 +131,7 @@ class GeminiAnswerGenerator:
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-            "generationConfig": {
-                "temperature": self.settings.gemini_temperature,
-                "maxOutputTokens": self.settings.gemini_max_tokens,
-            },
+            "generationConfig": self._generation_config(),
         }
         request = Request(
             url,
@@ -171,10 +168,7 @@ class GeminiAnswerGenerator:
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-            "generationConfig": {
-                "temperature": self.settings.gemini_temperature,
-                "maxOutputTokens": self.settings.gemini_max_tokens,
-            },
+            "generationConfig": self._generation_config(),
         }
         request = Request(
             url,
@@ -226,3 +220,15 @@ class GeminiAnswerGenerator:
                 text = part.get("text")
                 if isinstance(text, str) and text:
                     yield text
+
+    def _generation_config(self) -> dict[str, object]:
+        config: dict[str, object] = {
+            "temperature": self.settings.gemini_temperature,
+            "maxOutputTokens": self.settings.gemini_max_tokens,
+        }
+        model = self.settings.gemini_model.removeprefix("models/")
+        if model.startswith("gemini-3") and self.settings.gemini_thinking_level:
+            config["thinkingConfig"] = {
+                "thinkingLevel": self.settings.gemini_thinking_level,
+            }
+        return config

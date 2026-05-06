@@ -46,7 +46,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SCHOLARRAG_GEMINI_API_KEY", "GEMINI_API_KEY"),
     )
     gemini_model: str = Field(
-        default="gemma-4-31b-it",
+        default="gemini-3-flash-preview",
         validation_alias=AliasChoices("SCHOLARRAG_GEMINI_MODEL", "SCHOLARRAG_LLM_MODEL"),
     )
     gemini_base_url: str = Field(
@@ -68,6 +68,13 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             "SCHOLARRAG_GEMINI_MAX_TOKENS",
             "SCHOLARRAG_LLM_MAX_TOKENS",
+        ),
+    )
+    gemini_thinking_level: str | None = Field(
+        default="minimal",
+        validation_alias=AliasChoices(
+            "SCHOLARRAG_GEMINI_THINKING_LEVEL",
+            "SCHOLARRAG_LLM_THINKING_LEVEL",
         ),
     )
 
