@@ -108,26 +108,56 @@ The current large-corpus notebook is:
 
 `experiments/open_arxiv_faiss_colab.ipynb`
 
-It defaults to `RUN_MODE = "cs_100k"` and indexes up to 100,000 OpenArXiv
-papers with at least one category beginning with `cs.`. Each paper gets one
-vector from `title + full abstract`; abstracts are not chunked in this
+It defaults to `RUN_MODE = "cs_100k"` and indexes up to 100,000 recent
+OpenArXiv papers with at least one category beginning with `cs.`. The default
+slice uses `MIN_UPDATE_DATE = "2020-01-01"` and sorts by `update_date`
+descending before selecting the 100k papers. Each paper gets one vector from
+`title + full abstract`; abstracts are not chunked in this
 experiment. `dry_run` uses exact `IndexIDMap2(IndexFlatIP)`. `cs_100k` defaults
 to approximate `IndexIDMap2(IndexIVFFlat)` so you can test faster retrieval;
 set `FAISS_INDEX_KIND = "flat"` for an exact baseline. For `full`, it switches
 to compressed approximate `IndexIDMap2(IndexIVFPQ)`. SQLite stores abstract text
 and metadata.
 
-The notebook uses L4-oriented embedding batch defaults: 256 for `dry_run` and
-`cs_100k`, 192 for `full`. OpenArXiv does not provide a ready category index,
+The notebook uses L4-oriented embedding batch defaults: 512 for `dry_run` and
+`cs_100k`, 384 for `full`. OpenArXiv does not provide a ready category index,
 so the first CS-only run still scans the dataset once; the filtered subset is
 then saved to Drive and reused on later Colab reconnects.
 
 The notebook writes durable artifacts to Google Drive under:
 
-`/content/drive/MyDrive/scholarrag/open_arxiv_embeddinggemma_fact_check_cs_100k_ivfflat/`
+`/content/drive/MyDrive/scholarrag/open_arxiv_embeddinggemma_fact_check_cs_100k_from_2020_recent_ivfflat/`
 
 Use `RUN_MODE = "dry_run"` for a 1,000-paper validation run before spending L4
 time on the 100k experiment.
+
+## Colab API launcher
+
+After the FAISS notebook has written `open_arxiv_papers.faiss` and
+`open_arxiv_papers.sqlite` to Drive, you can serve the API from the Colab VM
+without reindexing:
+
+```bash
+cd /content/ScholarRAG
+pip install -e .
+python scripts/colab_launch_api.py --print-env
+```
+
+The launcher defaults to the current 100k recent-CS artifact folder:
+
+```text
+/content/drive/MyDrive/scholarrag/open_arxiv_embeddinggemma_fact_check_cs_100k_from_2020_recent_ivfflat/
+```
+
+For a public URL, set an ngrok token in the Colab terminal first:
+
+```bash
+export NGROK_AUTHTOKEN=<your-ngrok-token>
+python scripts/colab_launch_api.py --install-ngrok
+```
+
+It prints `/health` and public tunnel URLs when available. If you use a
+different FAISS run folder, pass `--run-dir /content/drive/MyDrive/...`.
 
 ## Production commands
 
