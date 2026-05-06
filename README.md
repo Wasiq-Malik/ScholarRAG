@@ -156,6 +156,13 @@ export NGROK_AUTHTOKEN=<your-ngrok-token>
 python scripts/colab_launch_api.py --install-ngrok
 ```
 
+To reuse a fixed ngrok domain assigned to your account:
+
+```bash
+export NGROK_DOMAIN=complete-jay-strictly.ngrok-free.app
+python scripts/colab_launch_api.py --install-ngrok
+```
+
 It prints `/health` and public tunnel URLs when available. If you use a
 different FAISS run folder, pass `--run-dir /content/drive/MyDrive/...`.
 

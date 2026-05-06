@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -29,6 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sqlite", type=Path, default=None)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument(
+        "--no-auto-port",
+        action="store_true",
+        help="Fail if --port is busy instead of selecting the next free port.",
+    )
     parser.add_argument("--nprobe", type=int, default=32)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--candidate-k", type=int, default=50)
@@ -43,6 +49,14 @@ def parse_args() -> argparse.Namespace:
         "--install-ngrok",
         action="store_true",
         help="Install pyngrok if it is missing.",
+    )
+    parser.add_argument(
+        "--ngrok-domain",
+        default=os.environ.get("NGROK_DOMAIN"),
+        help=(
+            "Fixed ngrok domain to use, for example "
+            "complete-jay-strictly.ngrok-free.app. Can also be set with NGROK_DOMAIN."
+        ),
     )
     parser.add_argument(
         "--print-env",
@@ -92,7 +106,7 @@ def maybe_install_pyngrok() -> None:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "pyngrok"])
 
 
-def start_ngrok(port: int, *, install_ngrok: bool) -> str | None:
+def start_ngrok(port: int, *, install_ngrok: bool, domain: str | None) -> str | None:
     token = os.environ.get("NGROK_AUTHTOKEN")
     if not token:
         print("NGROK_AUTHTOKEN is not set; starting local server without a public tunnel.")
@@ -105,11 +119,37 @@ def start_ngrok(port: int, *, install_ngrok: bool) -> str | None:
         print("pyngrok is not installed. Re-run with --install-ngrok or install it in Colab.")
         return None
     ngrok.set_auth_token(token)
-    tunnel = ngrok.connect(port, bind_tls=True)
+    options: dict[str, object] = {"bind_tls": True}
+    if domain:
+        options["domain"] = domain
+    tunnel = ngrok.connect(port, **options)
     public_url = str(tunnel.public_url)
     print(f"ngrok public URL: {public_url}")
     print(f"Health check: {public_url}/health")
     return public_url
+
+
+def port_is_available(host: str, port: int) -> bool:
+    bind_host = "0.0.0.0" if host in {"0.0.0.0", "::"} else host
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((bind_host, port))
+        except OSError:
+            return False
+    return True
+
+
+def choose_port(host: str, requested_port: int, *, auto_port: bool) -> int:
+    if port_is_available(host, requested_port):
+        return requested_port
+    if not auto_port:
+        raise OSError(f"Port {requested_port} is already in use.")
+    for port in range(requested_port + 1, requested_port + 100):
+        if port_is_available(host, port):
+            print(f"Port {requested_port} is busy; using free port {port}.")
+            return port
+    raise OSError(f"Could not find a free port near {requested_port}.")
 
 
 def wait_for_health(port: int, timeout_seconds: int = 120) -> bool:
@@ -128,6 +168,7 @@ def wait_for_health(port: int, timeout_seconds: int = 120) -> bool:
 def main() -> int:
     args = parse_args()
     faiss_index, sqlite_path = resolve_artifacts(args)
+    port = choose_port(args.host, args.port, auto_port=not args.no_auto_port)
     env = configure_environment(args, faiss_index, sqlite_path)
 
     if args.print_env:
@@ -142,10 +183,8 @@ def main() -> int:
         ]
         for key in keys:
             print(f"{key}={env.get(key)}")
-
-    public_url = None
-    if args.tunnel == "ngrok":
-        public_url = start_ngrok(args.port, install_ngrok=args.install_ngrok)
+        print(f"HF_TOKEN_SET={bool(env.get('HF_TOKEN') or env.get('SCHOLARRAG_HF_TOKEN'))}")
+        print(f"GEMINI_API_KEY_SET={bool(env.get('GEMINI_API_KEY') or env.get('SCHOLARRAG_GEMINI_API_KEY'))}")
 
     command = [
         sys.executable,
@@ -155,20 +194,29 @@ def main() -> int:
         "--host",
         args.host,
         "--port",
-        str(args.port),
+        str(port),
     ]
     print("Starting ScholarRAG API...")
-    print("Local URL: http://127.0.0.1:%d" % args.port)
-    if public_url:
-        print(f"Public URL: {public_url}")
+    print("Local URL: http://127.0.0.1:%d" % port)
     print("Press Ctrl-C to stop.")
 
     process = subprocess.Popen(command, env=env, cwd=REPO_ROOT)
     try:
-        if wait_for_health(args.port):
+        if wait_for_health(port):
             print("ScholarRAG API health check passed.")
         else:
             print("Warning: local health check did not pass before timeout.")
+            if process.poll() is not None:
+                return int(process.returncode or 1)
+        public_url = None
+        if args.tunnel == "ngrok":
+            public_url = start_ngrok(
+                port,
+                install_ngrok=args.install_ngrok,
+                domain=args.ngrok_domain,
+            )
+        if public_url:
+            print(f"Public URL: {public_url}")
         return process.wait()
     except KeyboardInterrupt:
         process.terminate()

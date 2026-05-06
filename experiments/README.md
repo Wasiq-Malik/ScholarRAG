@@ -57,6 +57,13 @@ For an internet-accessible tunnel, set `NGROK_AUTHTOKEN` and run:
 python scripts/colab_launch_api.py --install-ngrok
 ```
 
+For a fixed ngrok domain assigned to your account:
+
+```bash
+export NGROK_DOMAIN=complete-jay-strictly.ngrok-free.app
+python scripts/colab_launch_api.py --install-ngrok
+```
+
 ## SciFact
 
 `scifact/` contains the reranker fine-tuning notebook and related follow-on

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import traceback
 from typing import Any
 from uuid import uuid4
 
@@ -84,29 +85,33 @@ def create_app() -> FastAPI:
     @app.post("/query", response_model=QueryResponse)
     def query(request: QueryRequest) -> QueryResponse:
         settings, store, _embedder, _vector_store, retriever, generator = get_services()
-        chunks, retrieval_info = retriever.retrieve(
-            request.question,
-            top_k=request.top_k,
-            filters=request.filters,
-        )
-        answer = generator.answer(question=request.question, chunks=chunks)
-        sources = [chunk.source_dict() for chunk in chunks]
-        store.log_query(
-            query_id=str(uuid4()),
-            question=request.question,
-            answer=answer,
-            sources=sources,
-            model=settings.gemini_model,
-        )
-        return QueryResponse(
-            answer=answer,
-            sources=sources,
-            retrieval=retrieval_info,
-            models={
-                "embedding": settings.embedding_model_id,
-                "llm": settings.gemini_model,
-            },
-        )
+        try:
+            chunks, retrieval_info = retriever.retrieve(
+                request.question,
+                top_k=request.top_k,
+                filters=request.filters,
+            )
+            answer = generator.answer(question=request.question, chunks=chunks)
+            sources = [chunk.source_dict() for chunk in chunks]
+            store.log_query(
+                query_id=str(uuid4()),
+                question=request.question,
+                answer=answer,
+                sources=sources,
+                model=settings.gemini_model,
+            )
+            return QueryResponse(
+                answer=answer,
+                sources=sources,
+                retrieval=retrieval_info,
+                models={
+                    "embedding": settings.embedding_model_id,
+                    "llm": settings.gemini_model,
+                },
+            )
+        except Exception as exc:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
 
     @app.post("/ingest/open-arxiv", response_model=IngestOpenArxivResponse)
     def ingest_open_arxiv(
