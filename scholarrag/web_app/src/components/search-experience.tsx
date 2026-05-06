@@ -32,7 +32,6 @@ const PAGE_SIZE = 10;
 const RETRIEVE_TOP_K = 50;
 const ANSWER_CONTEXT_K = 10;
 const STREAM_STEP_MS = 18;
-const CITATION_LINK_PREFIX = "scholar-cite:";
 
 type ResultsState =
   | { status: "idle" }
@@ -113,7 +112,7 @@ function linkifyCitations(text: string, maxCitation: number): string {
     if (!Number.isInteger(citationIndex) || citationIndex < 1 || citationIndex > maxCitation) {
       return fullMatch;
     }
-    return `[${citationIndex}](${CITATION_LINK_PREFIX}${citationIndex})`;
+    return `[${citationIndex}](#citation-${citationIndex})`;
   });
 }
 
@@ -357,29 +356,6 @@ export function SearchExperience() {
     return sources.find((source) => source.point_id === selectedId) || sources[0];
   }, [selectedId, sources]);
 
-  function focusSource(source: QuerySource) {
-    const absoluteIndex = sources.findIndex((candidate) => candidate.point_id === source.point_id);
-    if (absoluteIndex === -1) {
-      return;
-    }
-    setPage(Math.floor(absoluteIndex / PAGE_SIZE) + 1);
-    setSelectedId(source.point_id);
-    window.setTimeout(() => {
-      document.getElementById(`result-${source.point_id}`)?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    }, 80);
-  }
-
-  function onCitationClick(citationIndex: number) {
-    const source = answerSources[citationIndex - 1];
-    if (!source) {
-      return;
-    }
-    focusSource(source);
-  }
-
   async function runSearch(nextQuery = query) {
     const normalized = nextQuery.trim();
     if (!normalized) {
@@ -519,8 +495,7 @@ export function SearchExperience() {
             />
             <AiOverview
               state={overviewState}
-              citationCount={answerSources.length}
-              onCitationClick={onCitationClick}
+              citationSources={answerSources}
             />
             <ResultsToolbar
               page={page}
@@ -580,13 +555,12 @@ function SearchMeta({
 
 function AiOverview({
   state,
-  citationCount,
-  onCitationClick,
+  citationSources,
 }: {
   state: OverviewState;
-  citationCount: number;
-  onCitationClick: (citationIndex: number) => void;
+  citationSources: QuerySource[];
 }) {
+  const citationCount = citationSources.length;
   const renderedMarkdown = useMemo(
     () => linkifyCitations(state.text, citationCount),
     [state.text, citationCount],
@@ -633,16 +607,21 @@ function AiOverview({
                 li: ({ children }) => <li>{children}</li>,
                 strong: ({ children }) => <strong className="font-semibold text-[#172033]">{children}</strong>,
                 a: ({ href, children }) => {
-                  if (href?.startsWith(CITATION_LINK_PREFIX)) {
-                    const citationIndex = Number(href.slice(CITATION_LINK_PREFIX.length));
+                  if (href?.startsWith("#citation-")) {
+                    const citationIndex = Number(href.slice("#citation-".length));
+                    const source = citationSources[citationIndex - 1];
+                    if (!source?.arxiv_url) {
+                      return <span>{children}</span>;
+                    }
                     return (
-                      <button
-                        type="button"
-                        onClick={() => onCitationClick(citationIndex)}
-                        className="mx-0.5 inline-flex h-6 items-center rounded-full border border-[#c9dcfb] bg-[#eef5ff] px-2 text-[12px] font-semibold leading-none text-[#1558d6] transition hover:border-[#9fc2fb] hover:bg-[#e4efff] hover:text-[#0b57d0]"
+                      <a
+                        href={source.arxiv_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mx-0.5 inline-flex h-6 items-center rounded-full border border-[#c9dcfb] bg-[#eef5ff] px-2 text-[12px] font-semibold leading-none text-[#1558d6] no-underline transition hover:border-[#9fc2fb] hover:bg-[#e4efff] hover:text-[#0b57d0]"
                       >
                         {children}
-                      </button>
+                      </a>
                     );
                   }
                   return (
