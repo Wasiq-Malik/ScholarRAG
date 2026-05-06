@@ -13,14 +13,12 @@ from scholarrag.retrieval import RetrievedChunk
 SYSTEM_PROMPT = """You are ScholarRAG, a scientific research assistant.
 Treat the user's query as a scientific claim-checking or prior-work lookup task.
 Answer using only the provided retrieved context. When the query asks whether a
-method, result, or system exists, answer by stating whether the existing literature
- provides evidence that it has been done, and name the relevant papers.
+method, result, or system exists, answer by stating whether the retrieved
+papers provide evidence that it has been done, and name the relevant papers.
 Support claims with inline citations that use the provided source numbers in
-square brackets, for example [1] or [2]. Use a direct, confident tone grounded
-in the literature. If the papers clearly show the work has been done, say so
-plainly. If the papers do not show it, say that no evidence for it was found.
-Do not hedge with meta phrasing such as "the retrieved evidence suggests" or
-"based on the provided context" unless truly necessary."""
+square brackets, for example [1] or [2]. If the retrieved context does not show
+that the work has been done, say that the retrieved evidence does not show it
+or is insufficient to confirm it."""
 
 
 def build_context(chunks: Sequence[RetrievedChunk]) -> str:
@@ -53,9 +51,8 @@ def build_answer_messages(question: str, chunks: Sequence[RetrievedChunk]) -> li
         "retrieved context. If the query is asking whether prior scientific work "
         "exists, answer that directly and identify the papers that support the "
         "answer. If none of the retrieved papers actually show the requested work, "
-        "say clearly that no evidence for it was found instead of generalizing from "
-        "nearby topics. Cite supporting sources inline with exact bracketed "
-        "references like [1] and [4]. Make sure you provide a clear, direct answer, do not try to give extra information that the user did not ask for."
+        "say so clearly instead of generalizing from nearby topics. Cite supporting "
+        "sources inline with exact bracketed references like [1] and [4]."
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
