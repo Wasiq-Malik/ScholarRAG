@@ -107,12 +107,16 @@ function linkifyCitations(text: string, maxCitation: number): string {
   if (!text || maxCitation < 1) {
     return text;
   }
-  return text.replace(/\[(\d+)\]/g, (fullMatch, rawIndex: string) => {
-    const citationIndex = Number(rawIndex);
-    if (!Number.isInteger(citationIndex) || citationIndex < 1 || citationIndex > maxCitation) {
-      return fullMatch;
-    }
-    return `[${citationIndex}](#citation-${citationIndex})`;
+  return text.replace(/\[((?:\d+\s*,\s*)*\d+)\]/g, (fullMatch, rawGroup: string) => {
+    const parts = rawGroup.split(",").map((part) => part.trim());
+    const rendered = parts.map((part) => {
+      const citationIndex = Number(part);
+      if (!Number.isInteger(citationIndex) || citationIndex < 1 || citationIndex > maxCitation) {
+        return part;
+      }
+      return `[${citationIndex}](#citation-${citationIndex})`;
+    });
+    return rendered.join(", ");
   });
 }
 
@@ -659,7 +663,7 @@ function AiOverview({
                         rel="noreferrer"
                         className="mx-0.5 inline-flex h-6 items-center rounded-full border border-[#c9dcfb] bg-[#eef5ff] px-2 text-[12px] font-semibold leading-none text-[#1558d6] no-underline transition hover:border-[#9fc2fb] hover:bg-[#e4efff] hover:text-[#0b57d0]"
                       >
-                        {children}
+                        [{children}]
                       </a>
                     );
                   }
