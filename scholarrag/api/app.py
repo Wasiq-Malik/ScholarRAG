@@ -16,7 +16,7 @@ from scholarrag.api.schemas import (
 from scholarrag.config import Settings, get_settings
 from scholarrag.embeddings import EmbeddingGemmaEmbedder
 from scholarrag.ingest import OpenArxivIndexer
-from scholarrag.llm import VLLMAnswerGenerator
+from scholarrag.llm import GeminiAnswerGenerator
 from scholarrag.retrieval import RetrievalService
 from scholarrag.storage import SQLiteStore
 from scholarrag.vectorstores.qdrant_store import QdrantVectorStore
@@ -37,7 +37,7 @@ def get_services() -> tuple[
     EmbeddingGemmaEmbedder,
     Any,
     RetrievalService,
-    VLLMAnswerGenerator,
+    GeminiAnswerGenerator,
 ]:
     settings = get_settings()
     store = SQLiteStore(settings.sqlite_path)
@@ -49,7 +49,7 @@ def get_services() -> tuple[
         embedder=embedder,
         vector_store=vector_store,
     )
-    generator = VLLMAnswerGenerator(settings)
+    generator = GeminiAnswerGenerator(settings)
     return settings, store, embedder, vector_store, retriever, generator
 
 
@@ -78,7 +78,7 @@ def create_app() -> FastAPI:
             faiss_sqlite_exists=faiss_sqlite_exists,
             embedding_model=settings.embedding_model_id,
             embedding_dimension=settings.embedding_dimension,
-            vllm_model=settings.vllm_model,
+            llm_model=settings.gemini_model,
         )
 
     @app.post("/query", response_model=QueryResponse)
@@ -96,7 +96,7 @@ def create_app() -> FastAPI:
             question=request.question,
             answer=answer,
             sources=sources,
-            model=settings.vllm_model,
+            model=settings.gemini_model,
         )
         return QueryResponse(
             answer=answer,
@@ -104,7 +104,7 @@ def create_app() -> FastAPI:
             retrieval=retrieval_info,
             models={
                 "embedding": settings.embedding_model_id,
-                "llm": settings.vllm_model,
+                "llm": settings.gemini_model,
             },
         )
 

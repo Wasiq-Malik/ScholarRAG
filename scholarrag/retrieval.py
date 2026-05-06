@@ -8,6 +8,13 @@ from scholarrag.embeddings import EmbeddingGemmaEmbedder
 from scholarrag.vectorstores.qdrant_store import RetrievedPoint
 
 
+def arxiv_abs_url(paper_id: object) -> str | None:
+    paper_id_str = str(paper_id or "").strip()
+    if not paper_id_str:
+        return None
+    return f"https://arxiv.org/abs/{paper_id_str}"
+
+
 class VectorStore(Protocol):
     collection_name: str
     backend: str
@@ -34,6 +41,7 @@ class RetrievedChunk:
             "point_id": self.point_id,
             "score": self.score,
             "paper_id": self.metadata.get("paper_id"),
+            "arxiv_url": arxiv_abs_url(self.metadata.get("paper_id")),
             "chunk_id": self.metadata.get("chunk_id"),
             "title": self.metadata.get("title"),
             "categories": self.metadata.get("categories", []),

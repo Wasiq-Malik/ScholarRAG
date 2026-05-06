@@ -12,7 +12,6 @@ dependencies = [
     "huggingface_hub>=0.30.0",
     "matplotlib>=3.9.0",
     "numpy>=2.0.0",
-    "openai>=1.50.0",
     "pydantic-settings>=2.5.0",
     "qdrant-client>=1.11.0",
     "sentence-transformers>=3.0.0",

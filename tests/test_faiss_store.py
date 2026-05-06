@@ -74,6 +74,45 @@ def _write_test_metadata(path) -> None:
         )
 
 
+def _write_test_paper_metadata(path) -> None:
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            create table papers (
+                vector_id integer primary key,
+                point_id text unique not null,
+                paper_id text not null,
+                title text not null,
+                text text not null,
+                categories_json text not null,
+                update_date text,
+                authors_json text not null,
+                created_at text not null
+            );
+            """
+        )
+        connection.execute(
+            """
+            insert into papers (
+                vector_id, point_id, paper_id, title, text,
+                categories_json, update_date, authors_json, created_at
+            )
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                10,
+                "point-10",
+                "paper-10",
+                "Neural Retrieval",
+                "full abstract evidence",
+                json.dumps(["cs.CL"]),
+                "2026-01-01",
+                json.dumps(["Jane Doe"]),
+                "now",
+            ),
+        )
+
+
 def test_faiss_store_searches_index_and_returns_sqlite_payload(tmp_path) -> None:
     index_path = tmp_path / "index.faiss"
     sqlite_path = tmp_path / "chunks.sqlite"
@@ -117,3 +156,26 @@ def test_faiss_store_applies_metadata_filters(tmp_path) -> None:
     results = store.search([1.0, 0.0, 0.0], limit=2, filters={"categories": ["q-bio.BM"]})
 
     assert [result.point_id for result in results] == ["point-20"]
+
+
+def test_faiss_store_supports_paper_level_metadata(tmp_path) -> None:
+    index_path = tmp_path / "index.faiss"
+    sqlite_path = tmp_path / "papers.sqlite"
+    vectors = np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32)
+    ids = np.asarray([10], dtype=np.int64)
+    _write_test_index(index_path, vectors, ids)
+    _write_test_paper_metadata(sqlite_path)
+
+    store = FaissVectorStore(
+        Settings(
+            embedding_dimension=3,
+            faiss_index_path=index_path,
+            faiss_sqlite_path=sqlite_path,
+        )
+    )
+
+    results = store.search([1.0, 0.0, 0.0], limit=1)
+
+    assert results[0].point_id == "point-10"
+    assert results[0].payload["chunk_id"] == 0
+    assert results[0].payload["text"] == "full abstract evidence"

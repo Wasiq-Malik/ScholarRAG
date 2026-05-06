@@ -61,8 +61,9 @@ def test_query_endpoint_returns_answer_sources_and_models(monkeypatch) -> None:
     body = response.json()
     assert body["answer"] == "Grounded answer [1]."
     assert body["sources"][0]["paper_id"] == "paper-1"
+    assert body["sources"][0]["arxiv_url"] == "https://arxiv.org/abs/paper-1"
     assert body["models"]["embedding"] == settings.embedding_model_id
-    assert body["models"]["llm"] == settings.vllm_model
+    assert body["models"]["llm"] == settings.gemini_model
 
 
 def test_health_reports_faiss_backend(monkeypatch, tmp_path) -> None:

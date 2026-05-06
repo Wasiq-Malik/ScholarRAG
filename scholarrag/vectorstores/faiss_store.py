@@ -103,14 +103,26 @@ class FaissVectorStore:
         connection.row_factory = sqlite3.Row
         return connection
 
+    def _metadata_table(self, connection: sqlite3.Connection) -> str:
+        rows = connection.execute(
+            "select name from sqlite_master where type = 'table' and name in ('papers', 'chunks')"
+        ).fetchall()
+        table_names = {str(row["name"]) for row in rows}
+        if "papers" in table_names:
+            return "papers"
+        if "chunks" in table_names:
+            return "chunks"
+        raise RuntimeError("FAISS metadata DB must contain a papers or chunks table")
+
     def _payloads_by_vector_id(self, vector_ids: list[int]) -> dict[int, dict[str, Any]]:
         if not vector_ids:
             return {}
 
         placeholders = ",".join("?" for _ in vector_ids)
         with self._connect() as connection:
+            table = self._metadata_table(connection)
             rows = connection.execute(
-                f"select * from chunks where vector_id in ({placeholders})",
+                f"select * from {table} where vector_id in ({placeholders})",
                 vector_ids,
             ).fetchall()
 
@@ -120,10 +132,11 @@ class FaissVectorStore:
             vector_id = int(raw.pop("vector_id"))
             categories = _json_list(raw.pop("categories_json", None))
             authors = _json_list(raw.pop("authors_json", None))
+            chunk_id = raw.get("chunk_id")
             payloads[vector_id] = {
                 "point_id": str(raw.get("point_id") or vector_id),
                 "paper_id": raw.get("paper_id"),
-                "chunk_id": raw.get("chunk_id"),
+                "chunk_id": int(chunk_id) if chunk_id is not None else 0,
                 "title": raw.get("title"),
                 "text": raw.get("text") or "",
                 "categories": categories,

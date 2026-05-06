@@ -15,6 +15,7 @@ class QuerySource(BaseModel):
     point_id: str
     score: float
     paper_id: str | None = None
+    arxiv_url: str | None = None
     chunk_id: int | None = None
     title: str | None = None
     categories: list[str] = Field(default_factory=list)
@@ -49,4 +50,4 @@ class HealthResponse(BaseModel):
     faiss_sqlite_exists: bool | None = None
     embedding_model: str
     embedding_dimension: int
-    vllm_model: str
+    llm_model: str

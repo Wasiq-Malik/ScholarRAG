@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """Runtime settings for the local ScholarRAG production app."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "scholarrag/.env"),
         env_prefix="SCHOLARRAG_",
         extra="ignore",
         populate_by_name=True,
@@ -36,34 +36,40 @@ class Settings(BaseSettings):
     qdrant_collection: str = "open_arxiv_embeddinggemma_fact_check_768_cosine"
 
     vector_backend: Literal["qdrant", "faiss"] = "qdrant"
-    faiss_index_path: Path = Path("data/faiss/open_arxiv_ivfpq.faiss")
-    faiss_sqlite_path: Path = Path("data/faiss/open_arxiv_chunks.sqlite")
+    faiss_index_path: Path = Path("data/faiss/open_arxiv_papers.faiss")
+    faiss_sqlite_path: Path = Path("data/faiss/open_arxiv_papers.sqlite")
     faiss_nprobe: int = 32
     faiss_filter_multiplier: int = 5
 
-    vllm_base_url: str = Field(
-        default="http://localhost:8000/v1",
+    gemini_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SCHOLARRAG_GEMINI_API_KEY", "GEMINI_API_KEY"),
+    )
+    gemini_model: str = Field(
+        default="gemma-4-31b-it",
+        validation_alias=AliasChoices("SCHOLARRAG_GEMINI_MODEL", "SCHOLARRAG_LLM_MODEL"),
+    )
+    gemini_base_url: str = Field(
+        default="https://generativelanguage.googleapis.com/v1beta",
         validation_alias=AliasChoices(
+            "SCHOLARRAG_GEMINI_BASE_URL",
             "SCHOLARRAG_LLM_BASE_URL",
-            "SCHOLARRAG_VLLM_BASE_URL",
         ),
     )
-    vllm_api_key: str = Field(
-        default="token-abc123",
+    gemini_temperature: float = Field(
+        default=0.2,
         validation_alias=AliasChoices(
-            "SCHOLARRAG_LLM_API_KEY",
-            "SCHOLARRAG_VLLM_API_KEY",
+            "SCHOLARRAG_GEMINI_TEMPERATURE",
+            "SCHOLARRAG_LLM_TEMPERATURE",
         ),
     )
-    vllm_model: str = Field(
-        default="Qwen/Qwen3.5-9B",
+    gemini_max_tokens: int = Field(
+        default=1024,
         validation_alias=AliasChoices(
-            "SCHOLARRAG_LLM_MODEL",
-            "SCHOLARRAG_VLLM_MODEL",
+            "SCHOLARRAG_GEMINI_MAX_TOKENS",
+            "SCHOLARRAG_LLM_MAX_TOKENS",
         ),
     )
-    vllm_temperature: float = 0.2
-    vllm_max_tokens: int = 1024
 
     sqlite_path: Path = Path("data/scholarrag.sqlite3")
 

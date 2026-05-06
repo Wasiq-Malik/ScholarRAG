@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from scholarrag.config import Settings
 from scholarrag.retrieval import RetrievedChunk
@@ -10,7 +12,9 @@ from scholarrag.retrieval import RetrievedChunk
 SYSTEM_PROMPT = """You are ScholarRAG, a scientific research assistant.
 Answer only from the provided retrieved context. Cite sources with bracketed
 numbers like [1] and [2]. If the context does not contain enough evidence,
-say that the retrieved evidence is insufficient."""
+say that the retrieved evidence is insufficient. Return only the final answer.
+Do not show reasoning steps, analysis notes, bullet plans, or restate these
+instructions."""
 
 
 def build_context(chunks: Sequence[RetrievedChunk]) -> str:
@@ -39,7 +43,9 @@ def build_answer_messages(question: str, chunks: Sequence[RetrievedChunk]) -> li
         f"{question.strip()}\n\n"
         "Retrieved context:\n"
         f"{context if context else 'No context was retrieved.'}\n\n"
-        "Write a concise grounded answer with source citations."
+        "Write a concise grounded answer with source citations. Output only the "
+        "answer text. Do not include markdown bullets, labels, analysis, or a "
+        "restatement of the question/context."
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -47,39 +53,72 @@ def build_answer_messages(question: str, chunks: Sequence[RetrievedChunk]) -> li
     ]
 
 
-class VLLMAnswerGenerator:
+class GeminiAnswerGenerator:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self._client: Any | None = None
 
     @property
     def model(self) -> str:
-        return self.settings.vllm_model
-
-    def _get_client(self) -> Any:
-        if self._client is None:
-            from openai import OpenAI
-
-            self._client = OpenAI(
-                base_url=self.settings.vllm_base_url,
-                api_key=self.settings.vllm_api_key,
-            )
-        return self._client
+        return self.settings.gemini_model
 
     def answer(self, *, question: str, chunks: Sequence[RetrievedChunk]) -> str:
         if not chunks:
             return "The retrieved evidence is insufficient to answer this question."
-
-        try:
-            response = self._get_client().chat.completions.create(
-                model=self.settings.vllm_model,
-                messages=build_answer_messages(question, chunks),
-                temperature=self.settings.vllm_temperature,
-                max_tokens=self.settings.vllm_max_tokens,
-            )
-        except Exception as exc:
+        if not self.settings.gemini_api_key:
             return (
                 "Answer generation is unavailable, but retrieval succeeded. "
-                f"Configure an OpenAI-compatible LLM endpoint to generate answers. ({exc})"
+                "Set GEMINI_API_KEY or SCHOLARRAG_GEMINI_API_KEY to generate answers."
             )
-        return str(response.choices[0].message.content or "").strip()
+
+        system_message, user_message = build_answer_messages(question, chunks)
+        try:
+            response = self._generate(
+                system_prompt=system_message["content"],
+                user_prompt=user_message["content"],
+            )
+        except RuntimeError as exc:
+            return (
+                "Answer generation is unavailable, but retrieval succeeded. "
+                f"Gemini API could not generate an answer. ({exc})"
+            )
+        return response.strip()
+
+    def _generate(self, *, system_prompt: str, user_prompt: str) -> str:
+        model = self.settings.gemini_model.removeprefix("models/")
+        url = (
+            f"{self.settings.gemini_base_url.rstrip('/')}/models/"
+            f"{model}:generateContent"
+        )
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": {
+                "temperature": self.settings.gemini_temperature,
+                "maxOutputTokens": self.settings.gemini_max_tokens,
+            },
+        }
+        request = Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": self.settings.gemini_api_key or "",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=60) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Gemini API request failed: HTTP {exc.code}: {detail}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"Gemini API request failed: {exc.reason}") from exc
+        except Exception as exc:
+            raise RuntimeError(f"Gemini API request failed: {exc}") from exc
+
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return ""
+        parts = candidates[0].get("content", {}).get("parts") or []
+        return "".join(str(part.get("text") or "") for part in parts)

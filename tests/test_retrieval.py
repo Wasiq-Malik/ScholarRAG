@@ -50,3 +50,4 @@ def test_retrieval_uses_candidate_k_and_returns_sources() -> None:
     assert info["candidate_k"] == 50
     assert info["collection"] == "fake_collection"
     assert chunks[0].source_dict()["paper_id"] == "paper-1"
+    assert chunks[0].source_dict()["arxiv_url"] == "https://arxiv.org/abs/paper-1"

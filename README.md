@@ -2,10 +2,11 @@
 
 Scientific retrieval augmented generation over `open-index/open-arxiv`.
 
-The repo now has two tracks:
+The repo now has three tracks:
 
 - `benchmarks/scifact/`: retrieval and reranker benchmarking.
-- `scholarrag/`: production RAG app code for ingestion, retrieval, and answer generation.
+- `experiments/`: Colab notebooks for larger OpenArXiv indexing and follow-on model work.
+- `scholarrag/`: app code for ingestion, retrieval, vector-store access, and answer generation.
 
 ## Quick start
 
@@ -21,15 +22,15 @@ scholarrag inspect-open-arxiv
 ```text
 OpenArXiv dataset
   -> normalize title/abstract metadata
-  -> chunk abstracts
-  -> google/embeddinggemma-300m document embeddings
-  -> Qdrant collection, cosine distance, 768 dimensions
+  -> embed title + full abstract with google/embeddinggemma-300m
+  -> Qdrant or FAISS vector index, cosine/inner-product over normalized 768-d vectors
 
 User query
   -> EmbeddingGemma fact-check query prompt
-  -> Qdrant dense retrieval
-  -> Qwen/Qwen3.5-9B through vLLM
+  -> dense retrieval from Qdrant or FAISS
+  -> hosted Gemma through the Gemini API
   -> grounded answer with source citations
+  -> ranked source list with arXiv links
 ```
 
 The production retriever is fixed to `google/embeddinggemma-300m` with
@@ -42,23 +43,44 @@ task: fact checking | query: <question>
 Documents are embedded as:
 
 ```text
-title: <title-or-none> | text: <chunk text>
+title: <title-or-none> | text: <full abstract>
 ```
+
+## Module map
+
+- `scholarrag/config.py`: runtime settings and environment variable aliases.
+- `scholarrag/datasets/open_arxiv.py`: OpenArXiv streaming and record normalization.
+- `scholarrag/chunking.py`: legacy Qdrant abstract/title chunk creation and stable chunk IDs.
+- `scholarrag/embeddings.py`: EmbeddingGemma query/document formatting and encoding.
+- `scholarrag/vectorstores/qdrant_store.py`: Qdrant collection creation, upsert, and search.
+- `scholarrag/vectorstores/faiss_store.py`: FAISS index loading plus SQLite metadata lookup.
+- `scholarrag/ingest.py`: Qdrant-backed OpenArXiv ingestion.
+- `scholarrag/retrieval.py`: query embedding, vector search, source formatting, arXiv URLs.
+- `scholarrag/llm.py`: Gemini/Gemma answer generation over retrieved context.
+- `scholarrag/api/app.py`: FastAPI app with health, ingestion, and query endpoints.
 
 ## Local services
 
-Start Qdrant separately:
+Qdrant is the service-backed vector DB path. Start it separately:
 
 ```bash
 docker run -p 6333:6333 qdrant/qdrant
 ```
 
+Qdrant is the better long-term app backend when you want service semantics,
+incremental upserts, payload filtering, and snapshots. The local API ingestion
+endpoint currently writes to Qdrant only.
+
+FAISS is the current Colab artifact path. It is the fastest way to build and
+reload a 100k-paper experiment from Google Drive without operating a database
+service inside every Colab session.
+
 For a FAISS-backed local test using Colab-generated artifacts, copy these files
 from Google Drive to your machine:
 
 ```text
-open_arxiv_ivfpq.faiss
-open_arxiv_chunks.sqlite
+open_arxiv_papers.faiss
+open_arxiv_papers.sqlite
 manifest.json
 ```
 
@@ -66,34 +88,46 @@ Then start the API with FAISS settings:
 
 ```bash
 export SCHOLARRAG_VECTOR_BACKEND=faiss
-export SCHOLARRAG_FAISS_INDEX_PATH=/absolute/path/to/open_arxiv_ivfpq.faiss
-export SCHOLARRAG_FAISS_SQLITE_PATH=/absolute/path/to/open_arxiv_chunks.sqlite
-export SCHOLARRAG_LLM_BASE_URL=https://api.openai.com/v1
-export SCHOLARRAG_LLM_API_KEY=<your-api-key>
-export SCHOLARRAG_LLM_MODEL=gpt-4o-mini
+export SCHOLARRAG_FAISS_INDEX_PATH=/absolute/path/to/open_arxiv_papers.faiss
+export SCHOLARRAG_FAISS_SQLITE_PATH=/absolute/path/to/open_arxiv_papers.sqlite
+export GEMINI_API_KEY=<your-gemini-api-key>
+export SCHOLARRAG_GEMINI_MODEL=gemma-4-31b-it
 scholarrag serve-api --host 127.0.0.1 --port 8080
 ```
 
 If no reachable LLM endpoint is configured, `/query` still returns retrieved
 sources and an answer-generation-unavailable message.
 
-Start vLLM separately. The default final-answer model is `Qwen/Qwen3.5-9B`,
-chosen for the Colab/L4 or small-GPU target because it is stronger than the
-older 8B choice while still being realistic with a constrained context length.
+Answer generation uses the hosted Gemini API. Set `GEMINI_API_KEY` or
+`SCHOLARRAG_GEMINI_API_KEY` in `.env`; the default answer model is
+`gemma-4-31b-it`.
 
-```bash
-vllm serve Qwen/Qwen3.5-9B \
-  --port 8000 \
-  --max-model-len 32768 \
-  --dtype auto \
-  --gpu-memory-utilization 0.90 \
-  --language-model-only
-```
+## OpenArXiv FAISS experiment
 
-Fallback choices:
+The current large-corpus notebook is:
 
-- `Qwen/Qwen3-8B`: use if Qwen3.5 compatibility or memory is a problem.
-- `Qwen/Qwen3-14B`: use only if you can accept lower throughput or have more GPU headroom.
+`experiments/open_arxiv_faiss_colab.ipynb`
+
+It defaults to `RUN_MODE = "cs_100k"` and indexes up to 100,000 OpenArXiv
+papers with at least one category beginning with `cs.`. Each paper gets one
+vector from `title + full abstract`; abstracts are not chunked in this
+experiment. `dry_run` uses exact `IndexIDMap2(IndexFlatIP)`. `cs_100k` defaults
+to approximate `IndexIDMap2(IndexIVFFlat)` so you can test faster retrieval;
+set `FAISS_INDEX_KIND = "flat"` for an exact baseline. For `full`, it switches
+to compressed approximate `IndexIDMap2(IndexIVFPQ)`. SQLite stores abstract text
+and metadata.
+
+The notebook uses L4-oriented embedding batch defaults: 256 for `dry_run` and
+`cs_100k`, 192 for `full`. OpenArXiv does not provide a ready category index,
+so the first CS-only run still scans the dataset once; the filtered subset is
+then saved to Drive and reused on later Colab reconnects.
+
+The notebook writes durable artifacts to Google Drive under:
+
+`/content/drive/MyDrive/scholarrag/open_arxiv_embeddinggemma_fact_check_cs_100k_ivfflat/`
+
+Use `RUN_MODE = "dry_run"` for a 1,000-paper validation run before spending L4
+time on the 100k experiment.
 
 ## Production commands
 
@@ -138,13 +172,11 @@ Useful defaults:
 SCHOLARRAG_QDRANT_URL=http://localhost:6333
 SCHOLARRAG_QDRANT_COLLECTION=open_arxiv_embeddinggemma_fact_check_768_cosine
 SCHOLARRAG_VECTOR_BACKEND=qdrant
-SCHOLARRAG_FAISS_INDEX_PATH=data/faiss/open_arxiv_ivfpq.faiss
-SCHOLARRAG_FAISS_SQLITE_PATH=data/faiss/open_arxiv_chunks.sqlite
-SCHOLARRAG_VLLM_BASE_URL=http://localhost:8000/v1
-SCHOLARRAG_VLLM_MODEL=Qwen/Qwen3.5-9B
-SCHOLARRAG_LLM_BASE_URL=<OpenAI-compatible base URL, optional alias>
-SCHOLARRAG_LLM_API_KEY=<OpenAI-compatible API key, optional alias>
-SCHOLARRAG_LLM_MODEL=<OpenAI-compatible model, optional alias>
+SCHOLARRAG_FAISS_INDEX_PATH=data/faiss/open_arxiv_papers.faiss
+SCHOLARRAG_FAISS_SQLITE_PATH=data/faiss/open_arxiv_papers.sqlite
+SCHOLARRAG_GEMINI_MODEL=gemma-4-31b-it
+SCHOLARRAG_LLM_MODEL=<Gemini model, optional alias>
+GEMINI_API_KEY=<Gemini API key for hosted answer generation>
 SCHOLARRAG_SQLITE_PATH=data/scholarrag.sqlite3
 HF_TOKEN=<token for gated Hugging Face models, if needed>
 ```
@@ -177,6 +209,7 @@ POST /query
       "point_id": "...",
       "score": 0.82,
       "paper_id": "...",
+      "arxiv_url": "https://arxiv.org/abs/...",
       "chunk_id": 0,
       "title": "...",
       "categories": ["cs.CL"],
@@ -192,7 +225,7 @@ POST /query
   },
   "models": {
     "embedding": "google/embeddinggemma-300m",
-    "llm": "Qwen/Qwen3.5-9B"
+    "llm": "gemma-4-31b-it"
   }
 }
 ```
