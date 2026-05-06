@@ -161,7 +161,15 @@ def create_app() -> FastAPI:
                 error_payload = {"detail": f"{type(exc).__name__}: {exc}"}
                 yield f"event: error\ndata: {json.dumps(error_payload)}\n\n"
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.post("/query", response_model=QueryResponse)
     def query(request: QueryRequest) -> QueryResponse:

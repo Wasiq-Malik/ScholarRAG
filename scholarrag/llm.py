@@ -89,14 +89,34 @@ class GeminiAnswerGenerator:
         *,
         question: str,
         chunks: Sequence[RetrievedChunk],
-        chunk_chars: int = 160,
     ) -> Iterator[str]:
-        answer = self.answer(question=question, chunks=chunks)
-        text = answer.strip()
-        if not text:
+        if not chunks:
+            yield "The retrieved evidence is insufficient to answer this question."
             return
-        for start in range(0, len(text), chunk_chars):
-            yield text[start : start + chunk_chars]
+        if not self.settings.gemini_api_key:
+            yield (
+                "Answer generation is unavailable, but retrieval succeeded. "
+                "Set GEMINI_API_KEY or SCHOLARRAG_GEMINI_API_KEY to generate answers."
+            )
+            return
+
+        system_message, user_message = build_answer_messages(question, chunks)
+        try:
+            emitted = False
+            for piece in self._stream_generate(
+                system_prompt=system_message["content"],
+                user_prompt=user_message["content"],
+            ):
+                if piece:
+                    emitted = True
+                    yield piece
+            if not emitted:
+                return
+        except RuntimeError as exc:
+            yield (
+                "Answer generation is unavailable, but retrieval succeeded. "
+                f"Gemini API could not generate an answer. ({exc})"
+            )
 
     def _generate(self, *, system_prompt: str, user_prompt: str) -> str:
         model = self.settings.gemini_model.removeprefix("models/")
@@ -137,3 +157,68 @@ class GeminiAnswerGenerator:
             return ""
         parts = candidates[0].get("content", {}).get("parts") or []
         return "".join(str(part.get("text") or "") for part in parts)
+
+    def _stream_generate(self, *, system_prompt: str, user_prompt: str) -> Iterator[str]:
+        model = self.settings.gemini_model.removeprefix("models/")
+        url = (
+            f"{self.settings.gemini_base_url.rstrip('/')}/models/"
+            f"{model}:streamGenerateContent?alt=sse"
+        )
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": {
+                "temperature": self.settings.gemini_temperature,
+                "maxOutputTokens": self.settings.gemini_max_tokens,
+            },
+        }
+        request = Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+                "x-goog-api-key": self.settings.gemini_api_key or "",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=120) as response:
+                data_lines: list[str] = []
+                for raw_line in response:
+                    line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if not line:
+                        if data_lines:
+                            payload_text = "\n".join(data_lines)
+                            data_lines = []
+                            if payload_text == "[DONE]":
+                                return
+                            yield from self._extract_stream_text(payload_text)
+                        continue
+                    if line.startswith("data:"):
+                        data_lines.append(line[len("data:") :].lstrip())
+                if data_lines:
+                    payload_text = "\n".join(data_lines)
+                    if payload_text != "[DONE]":
+                        yield from self._extract_stream_text(payload_text)
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Gemini API request failed: HTTP {exc.code}: {detail}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"Gemini API request failed: {exc.reason}") from exc
+        except Exception as exc:
+            raise RuntimeError(f"Gemini API request failed: {exc}") from exc
+
+    def _extract_stream_text(self, payload_text: str) -> Iterator[str]:
+        try:
+            data = json.loads(payload_text)
+        except json.JSONDecodeError:
+            return
+
+        candidates = data.get("candidates") or []
+        for candidate in candidates:
+            parts = candidate.get("content", {}).get("parts") or []
+            for part in parts:
+                text = part.get("text")
+                if isinstance(text, str) and text:
+                    yield text

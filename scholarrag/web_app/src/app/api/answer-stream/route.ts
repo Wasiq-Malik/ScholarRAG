@@ -11,6 +11,13 @@ function sseChunk(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     question?: unknown;
@@ -35,11 +42,7 @@ export async function POST(request: Request) {
       },
     });
     return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
+      headers: SSE_HEADERS,
     });
   }
 
@@ -56,11 +59,7 @@ export async function POST(request: Request) {
       throw new Error(await upstream.text());
     }
     return new Response(upstream.body, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
+      headers: SSE_HEADERS,
     });
   } catch (error) {
     return NextResponse.json(
