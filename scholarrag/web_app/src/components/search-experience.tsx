@@ -23,7 +23,7 @@ import remarkGfm from "remark-gfm";
 import type { HealthResponse, QuerySource, RetrieveResponse } from "@/types/scholarrag";
 
 const EXAMPLE_QUERIES = [
-  "is retrieval augmented generation used scientific claim verification?",
+  "is Agentic AI being used for further scientific discovery in AI?",
   "are vision language models tensor parallelized during inference?",
   "have VLMs been used for Tuberculosis detection?",
 ];
@@ -114,6 +114,22 @@ function linkifyCitations(text: string, maxCitation: number): string {
     }
     return `[${citationIndex}](#citation-${citationIndex})`;
   });
+}
+
+function friendlyOverviewError(detail: string): string {
+  const normalized = detail.toLowerCase();
+  if (
+    normalized.includes("503") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("high demand") ||
+    normalized.includes("unavailable")
+  ) {
+    return "Answer generation is temporarily unavailable due to model capacity or rate limits. Retrieval succeeded, so you can still review the ranked papers below.";
+  }
+  if (normalized.includes("api key") || normalized.includes("permission") || normalized.includes("403")) {
+    return "Answer generation is currently unavailable. Retrieval succeeded, so you can still review the ranked papers below.";
+  }
+  return "Answer generation is currently unavailable. Retrieval succeeded, so you can still review the ranked papers below.";
 }
 
 async function streamOverview(
@@ -356,6 +372,16 @@ export function SearchExperience() {
     return sources.find((source) => source.point_id === selectedId) || sources[0];
   }, [selectedId, sources]);
 
+  function resetSearch() {
+    setQuery("");
+    setPage(1);
+    setSelectedId(null);
+    setResultsState({ status: "idle" });
+    setOverviewState({ status: "idle", text: "" });
+    setRetrieveLatencyMs(null);
+    setShowSuggestions(false);
+  }
+
   async function runSearch(nextQuery = query) {
     const normalized = nextQuery.trim();
     if (!normalized) {
@@ -399,24 +425,24 @@ export function SearchExperience() {
         });
         setOverviewState({ status: "success", text: streamedText.trim() });
       } catch (error) {
-        setOverviewState({
-          status: "error",
-          text: streamedText.trim(),
-          message: error instanceof Error ? error.message : "Overview failed",
-        });
-      }
-    } catch (error) {
-      setResultsState({
-        status: "error",
-        message: error instanceof Error ? error.message : "Search failed",
-      });
       setOverviewState({
         status: "error",
-        text: "",
-        message: error instanceof Error ? error.message : "Search failed",
+        text: streamedText.trim(),
+        message: friendlyOverviewError(error instanceof Error ? error.message : "Overview failed"),
       });
     }
+  } catch (error) {
+    setResultsState({
+      status: "error",
+        message: error instanceof Error ? error.message : "Search failed",
+      });
+    setOverviewState({
+      status: "error",
+      text: "",
+      message: friendlyOverviewError(error instanceof Error ? error.message : "Search failed"),
+    });
   }
+}
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -434,12 +460,24 @@ export function SearchExperience() {
         <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white/92 backdrop-blur">
           <div className="mx-auto flex w-full max-w-[1500px] items-center gap-3 px-4 py-3 sm:px-5">
             <div className="hidden shrink-0 md:block">
-              <ScholarRagLogo />
+              <button
+                type="button"
+                onClick={resetSearch}
+                className="cursor-pointer text-left"
+                aria-label="Go back to search home"
+              >
+                <ScholarRagLogo />
+              </button>
             </div>
             <div className="md:hidden">
-              <div className="grid size-10 place-items-center rounded-xl bg-[#1558d6] text-white shadow-[0_16px_32px_rgba(21,88,214,0.24)]">
+              <button
+                type="button"
+                onClick={resetSearch}
+                className="grid size-10 cursor-pointer place-items-center rounded-xl bg-[#1558d6] text-white shadow-[0_16px_32px_rgba(21,88,214,0.24)]"
+                aria-label="Go back to search home"
+              >
                 <LibraryBig size={18} />
-              </div>
+              </button>
             </div>
             <div className="min-w-0 flex-1">
               <SearchForm
