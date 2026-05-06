@@ -23,9 +23,9 @@ import remarkGfm from "remark-gfm";
 import type { HealthResponse, QuerySource, RetrieveResponse } from "@/types/scholarrag";
 
 const EXAMPLE_QUERIES = [
-  "retrieval augmented generation for scientific question answering",
-  "tensor parallelism in multimodal LLMs",
-  "hallucination detection in large language models",
+  "is retrieval augmented generation used scientific claim verification?",
+  "are vision language models tensor parallelized during inference?",
+  "have VLMs been used for Tuberculosis detection?",
 ];
 
 const PAGE_SIZE = 10;

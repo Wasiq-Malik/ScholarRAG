@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="16" fill="#1558D6"/>
+  <path
+    d="M18 20.5C18 18.567 19.567 17 21.5 17H42.5C44.433 17 46 18.567 46 20.5V42.5C46 44.433 44.433 46 42.5 46H21.5C19.567 46 18 44.433 18 42.5V20.5Z"
+    fill="white"
+    fill-opacity="0.12"
+  />
+  <path
+    d="M23.5 23.5C23.5 22.672 24.172 22 25 22H38.034C38.394 22 38.742 22.129 39.016 22.364L42.482 25.331C42.815 25.616 43.006 26.033 43.006 26.472V40.5C43.006 41.328 42.334 42 41.506 42H28.5C27.764 42 27.077 41.629 26.672 41.012L24.255 37.331C23.765 36.585 23.5 35.712 23.5 34.819V23.5Z"
+    fill="white"
+  />
+  <path
+    d="M24 25.5C24 24.672 24.672 24 25.5 24H37.5C38.328 24 39 24.672 39 25.5V38.5C39 39.328 38.328 40 37.5 40H25.5C24.672 40 24 39.328 24 38.5V25.5Z"
+    fill="#DCE8FF"
+  />
+  <path d="M27 28H36" stroke="#1558D6" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M27 32H36" stroke="#1558D6" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M27 36H33.5" stroke="#1558D6" stroke-width="2.4" stroke-linecap="round"/>
+  <circle cx="49.5" cy="14.5" r="8.5" fill="#F6C453"/>
+  <path
+    d="M43.8 14.4L49.5 11L55.2 14.4L49.5 17.8L43.8 14.4Z"
+    fill="#4D3B00"
+  />
+  <path d="M46.8 16.1V19.2C48.1 20.2 50.9 20.2 52.2 19.2V16.1" stroke="#4D3B00" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M55.2 14.4V18.2" stroke="#4D3B00" stroke-width="1.7" stroke-linecap="round"/>
+</svg>
