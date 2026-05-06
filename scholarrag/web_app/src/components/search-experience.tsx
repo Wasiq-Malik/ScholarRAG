@@ -24,7 +24,7 @@ import type { HealthResponse, QuerySource, RetrieveResponse } from "@/types/scho
 
 const EXAMPLE_QUERIES = [
   "retrieval augmented generation for scientific question answering",
-  "graph retrieval augmented generation for literature review",
+  "tensor parallelism in multimodal LLMs",
   "hallucination detection in large language models",
 ];
 

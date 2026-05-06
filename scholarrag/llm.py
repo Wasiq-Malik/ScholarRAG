@@ -11,9 +11,14 @@ from scholarrag.retrieval import RetrievedChunk
 
 
 SYSTEM_PROMPT = """You are ScholarRAG, a scientific research assistant.
-Answer using only the provided retrieved context. Support claims with inline
-citations that use the provided source numbers in square brackets, for example
-[1] or [2]. If the context is insufficient, say so briefly."""
+Treat the user's query as a scientific claim-checking or prior-work lookup task.
+Answer using only the provided retrieved context. When the query asks whether a
+method, result, or system exists, answer by stating whether the retrieved
+papers provide evidence that it has been done, and name the relevant papers.
+Support claims with inline citations that use the provided source numbers in
+square brackets, for example [1] or [2]. If the retrieved context does not show
+that the work has been done, say that the retrieved evidence does not show it
+or is insufficient to confirm it."""
 
 
 def build_context(chunks: Sequence[RetrievedChunk]) -> str:
@@ -43,9 +48,11 @@ def build_answer_messages(question: str, chunks: Sequence[RetrievedChunk]) -> li
         "Retrieved context:\n"
         f"{context if context else 'No context was retrieved.'}\n\n"
         "Write a concise grounded answer for the question above. Use only the "
-        "retrieved context. Keep the answer focused and readable. Cite supporting "
-        "sources inline with exact bracketed references like [1] and [4]. You may "
-        "use short paragraphs or light markdown when it improves clarity."
+        "retrieved context. If the query is asking whether prior scientific work "
+        "exists, answer that directly and identify the papers that support the "
+        "answer. If none of the retrieved papers actually show the requested work, "
+        "say so clearly instead of generalizing from nearby topics. Cite supporting "
+        "sources inline with exact bracketed references like [1] and [4]."
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
