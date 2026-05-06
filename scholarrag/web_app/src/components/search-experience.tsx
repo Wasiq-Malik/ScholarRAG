@@ -425,6 +425,7 @@ export function SearchExperience() {
 
   const hasResults = resultsState.status === "success";
   const isLoading = resultsState.status === "loading";
+  const resultError = resultsState.status === "error" ? resultsState.message : null;
   const backendPill = healthPillState(health);
 
   return (
@@ -511,10 +512,10 @@ export function SearchExperience() {
               offset={(page - 1) * PAGE_SIZE}
               onSelect={setSelectedId}
             />
-            {resultsState.status === "error" ? (
+            {resultError ? (
               <div className="mt-4 flex items-start gap-3 rounded-lg border border-[#f0c9c9] bg-[#fff7f7] p-4 text-sm text-[#9b1c1c]">
                 <AlertCircle className="mt-0.5 shrink-0" size={18} />
-                <span>{resultsState.message}</span>
+                <span>{resultError}</span>
               </div>
             ) : null}
           </div>
