@@ -2,6 +2,12 @@
 
 Scientific retrieval augmented generation over `open-index/open-arxiv`.
 
+Repository: https://github.com/Wasiq-Malik/ScholarRAG
+
+Deployed demo: https://scholar-rag.vercel.app
+
+Model/index artifacts: https://drive.google.com/drive/folders/1t34rEBA0vsvD603WdJCzG0F_diz5GTKD?usp=sharing
+
 The repo now has three tracks:
 
 - `benchmarks/scifact/`: retrieval and reranker benchmarking.
@@ -29,7 +35,7 @@ OpenArXiv dataset
 User query
   -> EmbeddingGemma fact-check query prompt
   -> dense retrieval from Qdrant or FAISS
-  -> hosted Gemma through the Gemini API
+  -> hosted Gemma or Gemini Flash Lite through the Gemini API
   -> grounded answer with source citations
   -> ranked source list with arXiv links
 ```
@@ -101,7 +107,9 @@ sources and an answer-generation-unavailable message.
 
 Answer generation uses the hosted Gemini API. Set `GEMINI_API_KEY` or
 `SCHOLARRAG_GEMINI_API_KEY` in `.env`; the default answer model is
-`gemma-4-31b-it`.
+`gemma-4-31b-it`. We also tested Gemini 3.1 Flash Lite for answer generation
+because hosted Gemma sometimes produced less reliable Markdown formatting in
+the UI.
 
 ## OpenArXiv FAISS experiment
 
@@ -191,6 +199,19 @@ and `/answer/stream` so ranked papers render immediately while the AI Overview
 streams.
 
 ## Production commands
+
+Run the SciFact bi-encoder benchmark:
+
+```bash
+python benchmarks/scifact/run_benchmark.py --split test --document-mode abstract --models embeddinggemma_fact_check
+```
+
+Run reranker and fine-tuning experiments:
+
+```text
+Use the SciFact reranker and GTE fine-tuning Colab notebooks in experiments/ or benchmarks/scifact/.
+The saved outputs and reloadable artifacts are available in the Google Drive artifact folder linked above.
+```
 
 Inspect streamed OpenArXiv rows:
 

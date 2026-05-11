@@ -1,0 +1,504 @@
+%
+% File naacl2019.tex
+%
+%% Based on the style files for ACL 2018 and NAACL 2018, which were
+%% Based on the style files for ACL-2015, with some improvements
+%%  taken from the NAACL-2016 style
+%% Based on the style files for ACL-2014, which were, in turn,
+%% based on ACL-2013, ACL-2012, ACL-2011, ACL-2010, ACL-IJCNLP-2009,
+%% EACL-2009, IJCNLP-2008...
+%% Based on the style files for EACL 2006 by 
+%%e.agirre@ehu.es or Sergi.Balari@uab.es
+%% and that of ACL 08 by Joakim Nivre and Noah Smith
+
+\documentclass[11pt,a4paper]{article}
+%\usepackage[hyperref]{naaclhlt2019}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage{hyperref}
+
+%\aclfinalcopy % Uncomment this line for the final submission
+%\def\aclpaperid{***} %  Enter the acl Paper ID here
+
+%\setlength\titlebox{5cm}
+% You can expand the titlebox if you need extra space
+% to show all the authors. Please do not make the titlebox
+% smaller than 5cm (the original size); we will check this
+% in the camera-ready version and ask you to change it back.
+
+\newcommand\BibTeX{B{\sc ib}\TeX}
+
+\begin{document}
+\title{ScholarRAG: Open-Source Retrieval-Augmented Generation for Research Papers}
+%\maketitle
+%\begin{abstract}
+
+%A one paragraph description of your project including the key outcomes.
+
+%\end{abstract}
+
+\maketitle
+
+\section{Project Overview (10 points)}
+
+\paragraph{}ScholarRAG is an open-source Retrieval-Augmented Generation system for Research Papers. Given a natural-language research claim or question, it retrieves relevant research papers and generates a grounded answer from the retrieved papers. The target use case is helping researchers quickly check whether a scientific claim, method, or project direction has already been studied.
+
+\paragraph{}\textbf{Demo Video:} \href{https://drive.google.com/file/d/1_riQurc5qV0zHV-0BXhmatl7tSVzinaY/view}{Watch the ScholarRAG demo video}
+
+\paragraph{}Existing search tools only partially solve this workflow. General web search can mix scientific and non-scientific sources, while Google Scholar and OpenAlex mainly return ranked paper lists rather than grounded answers. ScholarRAG fills this gap by combining scholarly retrieval with retrieval-augmented generation (RAG) over research abstracts.
+
+\paragraph{}We benchmarked retrieval on SciFact because it has high quality labelled claim-to-research paper dataset. Our System searches among 1.5 million paper abstracts in OpenArXiv dataset. Our main result is that \texttt{EmbeddingGemma-300M} with a fact-checking query prompt is the best default retriever. It is fast and strong on SciFact, while GTE score fusion gives the best practical reranked result when extra latency is acceptable.
+
+\section{Ideas (10 points)}
+The baseline is standard retrieval-augmented generation (RAG) retrieval. A bi-encoder embeds the user query and every paper abstract into the same vector space. Abstract embeddings are computed offline and stored in a vector index, while the query embedding is computed at runtime. Retrieval ranks abstracts by cosine similarity or dot product, and the top results can later be passed to an answer generator. Our ideas modify this baseline retrieval step before building the final answer-generation layer.
+
+\subsection{Idea 1: Prompted and In-Context Bi-Encoder Retrieval}
+
+The first idea was to make the query embedding task-aware. We tested BGE with and without in-context examples and tested EmbeddingGemma with default, question-answering, and fact-checking prompts. This keeps the document index fixed while changing only the runtime query representation, which is practical for production vector search.
+
+\subsection{Idea 2: Bi-Encoder Retrieval plus Cross-Encoder Reranking}
+
+The second idea was a standard two-stage RAG pipeline: use the bi-encoder to retrieve top-$K$ abstracts, then use a cross-encoder to rerank them. We fixed \texttt{embeddinggemma\_fact\_check} as the retriever and tested reranking at $K=50$ and $K=100$. Pure reranking often hurt performance, which motivated score fusion instead of replacing the retriever score.
+
+\subsection{Idea 3: Score Fusion between Retriever and Reranker}
+
+The third idea was to preserve the useful information already present in the Gemma fact-check retriever while still allowing a reranker to make local corrections. For each query, we min-max normalized retriever and reranker scores over the same candidate set and combined them as:
+
+\begin{equation}
+s_{\mathrm{fused}}(q,d) =
+\alpha \cdot \mathrm{norm}(s_{\mathrm{retriever}}(q,d)) +
+(1-\alpha) \cdot \mathrm{norm}(s_{\mathrm{reranker}}(q,d)).
+\end{equation}
+
+Here $\alpha$ controls how much we trust the original bi-encoder ordering. This experiment tests whether rerankers are useful as local corrections while preserving the strong fact-checking signal from the Gemma retriever.
+
+\subsection{Idea 4: Fine-Tuning a Reranker for Fact-Checking Evidence}
+
+The fourth idea was to fine-tune a reranker for fact-checking evidence. We trained \texttt{gte-reranker-modernbert-base} on SciFact entailment pairs, mapping both \texttt{SUPPORT} and \texttt{CONTRADICT} to relevant evidence and \texttt{NEI}/\texttt{NOINFO} to non-evidence. This improved pairwise validation metrics but did not improve final top-10 retrieval.
+
+\subsection{Idea 5: Listwise Reranking}
+
+The fifth idea was listwise reranking. We tested Jina reranker v3 at $K=50$ to see whether comparing multiple abstracts together would improve ordering. It slightly improved the best nDCG@10 under fusion, but the latency was too high for the default system.
+
+\section{Experimental Setup (10 points)}
+
+\subsection{Models}
+Tables~\ref{tab:biencoder-models} and~\ref{tab:reranker-models} list the main open-weight models used in the experiments.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+Provider & Model & Type & Params \\
+\midrule
+Google & EmbeddingGemma 300M & Bi-encoder & 0.3B \\
+Qwen & Qwen3 Embedding 0.6B & Bi-encoder & 0.6B \\
+Qwen & Qwen3 Embedding 4B & Bi-encoder & 4B \\
+Qwen & Qwen3 Embedding 8B & Bi-encoder & 8B \\
+Microsoft & Harrier OSS 0.6B & Bi-encoder & 0.6B \\
+BAAI & BGE-en-ICL & Bi-encoder + ICL & 7B \\
+AllenAI & SPECTER2 & Scientific bi-encoder & BERT-base \\
+\bottomrule
+\end{tabular}
+\caption{Bi-encoder models used for first-stage query-to-abstract retrieval.}
+\label{tab:biencoder-models}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+Provider & Model & Type & Params \\
+\midrule
+SentenceTransformers & MS MARCO MiniLM L12 & Pairwise cross-encoder & 33M \\
+Alibaba & GTE ModernBERT reranker & Pairwise cross-encoder & Base \\
+Jina AI & Jina reranker v2 & Pairwise cross-encoder & Base \\
+BAAI & BGE reranker v2 M3 & Pairwise cross-encoder & Base \\
+Qwen & Qwen3 Reranker 0.6B & Pairwise reranker & 0.6B \\
+Jina AI & Jina reranker v3 & Listwise reranker & 0.6B \\
+\bottomrule
+\end{tabular}
+\caption{Reranker models used for second-stage retrieval experiments.}
+\label{tab:reranker-models}
+\end{table}
+
+For fine-tuning, we trained GTE ModernBERT on 919 SciFact entailment pairs for 10 epochs using batch size 16, learning rate $2 \times 10^{-5}$, and maximum sequence length 1024.
+
+\subsection{Dataset}
+SciFact is the benchmark dataset: each query is a scientific claim, each document is a paper abstract, and labels mark evidence abstracts. The test split has 300 claims over 5,183 abstracts. For reranker fine-tuning, we used SciFact entailment pairs and mapped \texttt{SUPPORT}/\texttt{CONTRADICT} to relevant evidence and \texttt{NEI}/\texttt{NOINFO} to non-evidence. OpenArXiv is the production corpus.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+Dataset & Use & Size & Example format \\
+\midrule
+SciFact retrieval & Benchmarking & 300 test claims, 5,183 abstracts & claim $\rightarrow$ relevant abstract IDs \\
+SciFact entailment & Fine-tuning & claim-abstract pairs & claim, abstract, verdict \\
+OpenArXiv & Production corpus & $\sim$2.99M papers & title, abstract, metadata \\
+\bottomrule
+\end{tabular}
+\caption{Datasets used for evaluation, fine-tuning, and the planned production system.}
+\label{tab:datasets}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{p{0.18\linewidth}p{0.72\linewidth}}
+\toprule
+Field & Example \\
+\midrule
+Claim & ``1 in 5 million in UK have abnormal PrP positivity.'' \\
+Abstract title & ``Prevalent abnormal prion protein in human appendixes after bovine spongiform encephalopathy epizootic.'' \\
+Verdict & \texttt{CONTRADICT}; mapped to relevant evidence for retrieval. \\
+\midrule
+Claim & ``32\% of liver transplantation programs required patients to discontinue opioid substitution therapy.'' \\
+Abstract title & ``Liver transplantation and opioid dependence.'' \\
+Verdict & \texttt{SUPPORT}; mapped to relevant evidence for retrieval. \\
+\midrule
+Claim & ``0-dimensional biomaterials lack inductive properties.'' \\
+Abstract title & ``New opportunities: the use of nanotechnologies to manipulate and track stem cells.'' \\
+Verdict & \texttt{NEI}; mapped to non-evidence for reranker fine-tuning. \\
+\bottomrule
+\end{tabular}
+\caption{Abbreviated SciFact entailment examples used to construct reranker fine-tuning pairs.}
+\label{tab:sample-format}
+\end{table}
+
+\subsection{Evaluation Metrics}
+We used nDCG@10 as the primary metric because it rewards relevant evidence near the top of the ranked list. We also report MRR@10, MAP@10, Recall@$K$, and latency.
+
+nDCG@10 is computed as:
+\begin{equation}
+\mathrm{nDCG@10} = \frac{\mathrm{DCG@10}}{\mathrm{IDCG@10}},
+\quad
+\mathrm{DCG@10} = \sum_{i=1}^{10} \frac{rel_i}{\log_2(i+1)}.
+\end{equation}
+
+Recall@$K$ measures whether the retriever includes the relevant evidence in the top-$K$ candidate set:
+\begin{equation}
+\mathrm{Recall@K} = \frac{|\mathrm{Relevant} \cap \mathrm{TopK}|}{|\mathrm{Relevant}|}.
+\end{equation}
+
+Latency was measured because the final system is interactive.
+
+\section{Results (40 points for implementation and results)}
+
+\subsection{Bi-Encoder Retrieval}
+EmbeddingGemma with the fact-checking prompt was the best default retriever: it achieved the best nDCG@10 and MAP@10 while keeping query latency low.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Method & nDCG@10 & MAP@10 & R@100 & Latency (ms) \\
+\midrule
+Gemma fact-check & \textbf{0.7901} & \textbf{0.7451} & \textbf{0.9833} & 2.70 \\
+Qwen3 8B & 0.7856 & 0.7401 & 0.9800 & 29.48 \\
+Gemma QA & 0.7843 & 0.7410 & 0.9800 & 2.70 \\
+Gemma default & 0.7807 & 0.7338 & \textbf{0.9833} & \textbf{2.69} \\
+Qwen3 4B & 0.7786 & 0.7337 & 0.9733 & 14.82 \\
+BGE ICL examples & 0.7718 & 0.7239 & 0.9733 & 72.59 \\
+Harrier 0.6B & 0.7705 & 0.7281 & 0.9817 & 4.64 \\
+BGE ICL plain & 0.7596 & 0.7129 & 0.9700 & 31.19 \\
+Qwen3 0.6B & 0.7040 & 0.6601 & 0.9500 & 4.34 \\
+SPECTER2 & 0.6209 & 0.5717 & 0.9563 & 2.90 \\
+\bottomrule
+\end{tabular}
+\caption{SciFact bi-encoder results over 300 test claims and 5,183 abstracts. Latency is average query-stage latency.}
+\label{tab:biencoder-results}
+\end{table}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{biencoder_ndcg.png}
+    \caption{Standalone nDCG@10 comparison for the tested bi-encoder models.}
+    \label{fig:biencoder-ndcg}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\linewidth]{biencoder_latency_tradeoff.png}
+\caption{Quality-latency tradeoff for the tested bi-encoder models.}
+\label{fig:biencoder-latency}
+\end{figure}
+
+\subsection{Pairwise Cross-Encoder Reranking}
+Pure reranking did not improve the baseline. Replacing the Gemma score with pairwise reranker scores decreased nDCG@10 for every tested reranker.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Method & K & nDCG@10 & MAP@10 & Latency (ms) \\
+\midrule
+Gemma retriever only & -- & \textbf{0.7890} & \textbf{0.7435} & \textbf{1.23} \\
+GTE reranker & 50 & 0.7681 & 0.7176 & 407.92 \\
+Qwen3 reranker & 50 & 0.7641 & 0.7192 & 1266.40 \\
+Jina v2 reranker & 50 & 0.7589 & 0.7149 & 381.93 \\
+BGE reranker & 50 & 0.7304 & 0.6834 & 662.73 \\
+MiniLM reranker & 50 & 0.6951 & 0.6441 & 87.03 \\
+\bottomrule
+\end{tabular}
+\caption{Pure pairwise reranking results. Replacing the Gemma score with reranker scores hurt performance.}
+\label{tab:rerank-results}
+\end{table}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{reranker_ndcg.png}
+    \caption{Pure reranking nDCG@10 comparison. Reranking without fusion lowered the score relative to the Gemma retriever baseline.}
+    \label{fig:reranker-ndcg}
+\end{figure}
+\subsection{Score Fusion}
+Score fusion improved over pure reranking. The best practical result was GTE fusion at $K=50$, $\alpha=0.40$, reaching 0.8087 nDCG@10.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+Method & K & $\alpha$ & nDCG@10 & MAP@10 & Latency (ms) \\
+\midrule
+Gemma only & -- & -- & 0.7890 & 0.7435 & \textbf{1.23} \\
+GTE fusion & 50 & 0.40 & 0.8087 & 0.7659 & 422.09 \\
+Qwen3 fusion & 50 & 0.25 & 0.8051 & \textbf{0.7668} & 1307.11 \\
+BGE fusion & 100 & 0.70 & 0.8007 & 0.7587 & 1380.44 \\
+Jina v2 fusion & 50 & 0.70 & 0.7947 & 0.7533 & 390.69 \\
+MiniLM fusion & 100 & 0.85 & 0.7903 & 0.7449 & 176.22 \\
+Jina v3 listwise fusion & 50 & 0.55 & \textbf{0.8096} & 0.7697 & 1613.86 \\
+\bottomrule
+\end{tabular}
+\caption{Best score-fusion results. Jina v3 obtains the highest nDCG@10 but is much slower; GTE fusion is the best practical quality-latency point.}
+\label{tab:fusion-results}
+\end{table}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\linewidth]{gte_fusion_alpha_sweep.png}
+    \caption{Score fusion sweep for the GTE reranker.}
+    \label{fig:gte-fusion-alpha}
+\end{figure}
+\subsection{Fine-Tuned Reranker}
+Fine-tuning improved GTE as a pairwise fact-checking classifier but did not improve final retrieval, showing that pairwise classification gains do not necessarily translate into better top-10 ranking.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+Model & ROC-AUC & Avg. Precision \\
+\midrule
+Base GTE reranker & 0.8745 & 0.9126 \\
+Fine-tuned GTE reranker & \textbf{0.9386} & \textbf{0.9518} \\
+\bottomrule
+\end{tabular}
+\caption{Validation metrics for the GTE reranker before and after SciFact entailment fine-tuning.}
+\label{tab:finetune-validation}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Method & K & nDCG@10 & MAP@10 & Latency (ms) \\
+\midrule
+Original GTE fusion & 50 & \textbf{0.8087} & \textbf{0.7659} & \textbf{422.09} \\
+Fine-tuned GTE rerank only & 50 & 0.7276 & -- & -- \\
+Fine-tuned GTE fusion & 100 & 0.7938 & 0.7479 & 4103.89 \\
+\bottomrule
+\end{tabular}
+\caption{Fine-tuned GTE retrieval results. Fine-tuning improved pair classification but did not improve the final retrieval pipeline.}
+\label{tab:finetune-retrieval}
+\end{table}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\linewidth]{finetuned_gte_alpha_sweep.png}
+    \caption{Fine-tuned GTE score-fusion sweep.}
+    \label{fig:finetuned-gte-alpha}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\linewidth]{jina_v3_alpha_sweepimage.png}
+    \caption{Jina v3 listwise fusion sweep. Jina v3 gives a small nDCG@10 gain but has much higher latency.}
+    \label{fig:jina-v3-alpha}
+\end{figure}
+
+\subsection{Implementation Summary}
+The implementation consists of reproducible Python benchmarks and Colab notebooks. The code supports SciFact bi-encoder evaluation, reranker and score-fusion experiments, GTE reranker fine-tuning, and OpenArXiv FAISS indexing for deployment.
+
+
+\section{Analysis and Discussion (25 points)}
+
+\paragraph{}We manually inspected a production-style query: \textit{``are vision language models tensor parallelized during inference?''} This is a difficult query because ``tensor parallelism'' is a specific systems technique, while many retrieved papers discuss broader VLM inference parallelism such as token scheduling, speculative decoding, or parallel reasoning.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{vlm_parallelism.png}
+\caption{Application output for the tensor-parallelism query. The answer is calibrated: the retrieved abstracts discuss VLM inference optimization, but they do not explicitly establish tensor parallelism.}
+\label{fig:vlm-tensor-query}
+\end{figure}
+
+\paragraph{}In Figure~\ref{fig:vlm-tensor-query}, the system gives the correct calibrated behavior: it retrieves related VLM inference papers but says that the abstracts do not explicitly prove tensor parallelism. The limitation appears when the query is reworded toward broader parallelism. Table~\ref{tab:vlm-query-shift} shows that a small wording change can move papers such as Visual Para-Thinker and Parallel Vision Token Scheduling higher in the ranking.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{cp{0.39\linewidth}p{0.39\linewidth}}
+\toprule
+Rank & Query A: tensor parallelized during inference & Query B: parallelized during inference \\
+\midrule
+1 & Thinking Before Looking & Visual Para-Thinker \\
+2 & Phase Diagram of VLLM Inference & Parallel Vision Token Scheduling \\
+3 & Parallel Vision Token Scheduling & Thinking Before Looking \\
+4 & Dynamic Visual Prompting & Phase Diagram of VLLM Inference \\
+5 & Mitigating Hallucinations by Refining Textual Embeddings & FastVLM / speculative decoding \\
+\bottomrule
+\end{tabular}
+\caption{Small wording changes can move the top-ranked evidence from general VLM inference papers to papers whose abstracts explicitly emphasize parallel reasoning or parallel token scheduling. This can make the generated answer sound more affirmative about ``parallelism'' even though it still does not directly prove tensor parallelism.}
+\label{tab:vlm-query-shift}
+\end{table}
+
+\paragraph{}This shows a practical RAG failure mode: the system is not hallucinating from nowhere, but it can answer a nearby question if the top-ranked abstracts emphasize a nearby concept. The main causes are dense retrieval ambiguity, answer sensitivity to the first few abstracts, and abstract-only retrieval missing implementation details that may appear in method sections, code, or serving documentation.
+
+\paragraph{}The next iteration should therefore improve retrieval robustness. We would add hybrid lexical+dense retrieval so exact phrases such as ``tensor parallelism'' carry more weight, search full-paper sections for systems questions, and keep answer calibration rules that distinguish direct evidence from adjacent evidence.
+
+\section{Deployment}
+
+Our deployed system uses an open-source retrieval stack over OpenArXiv abstracts. OpenArXiv contains roughly 3 million records dated from 1991--2026; for the prototype, we indexed the recent subset from 2020 onward, giving about 1.5 million abstract-level documents.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{excalidraw-1.png}
+    \caption{App Architechture}
+    \label{fig:placeholder}
+\end{figure}
+
+\subsection{Deployment Architecture}
+
+The deployment has two stages: an offline indexing pipeline and an online retrieval/RAG pipeline.
+
+\paragraph{Offline indexing.}
+The offline pipeline loads OpenArXiv, filters papers by date, normalizes title and abstract text, and embeds each paper using \texttt{google/embeddinggemma-300m}. We use the same fact-checking query style that performed best in SciFact. \\
+
+
+The vectors are stored in a FAISS IVF-PQ index for scalable approximate search, while metadata is stored separately in SQLite.
+
+\paragraph{Online retrieval.}
+At query time, the system embeds the user question, searches FAISS, and returns the top-$K$ abstracts, with $K=50$ in the deployed prototype.
+
+\paragraph{RAG answer generation.}
+For RAG, the system sends the top 10 abstracts to the generator and instructs it to answer only from the retrieved evidence, cite sources by rank, and state when evidence is insufficient.
+
+\subsection{Open Stack}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{Screenshot 2026-05-10 at 9.27.30 PM.png}
+    \caption{Open Stack Used}
+    \label{fig:placeholder}
+\end{figure}
+
+The deployment stack is intentionally lightweight and mostly open-source:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+Component & Tool Used \\
+\midrule
+Dataset & OpenArXiv through Hugging Face Datasets \\
+Embedding model & \texttt{google/embeddinggemma-300m} \\
+Vector index & FAISS IVF-PQ \\
+Metadata store & SQLite for notebook deployment; Supabase-compatible for app deployment \\
+Frontend & React and Next.js \\
+Artifact storage & Google Drive for Colab FAISS, SQLite, manifest, and checkpoints \\
+\bottomrule
+\end{tabular}
+\caption{Main tools used in the deployed ScholarRAG stack.}
+\label{tab:deployment-stack}
+\end{table}
+
+\section{Code and Working RAG App}
+
+The packaged code is available at:
+
+\begin{quote}
+\url{https://github.com/Wasiq-Malik/ScholarRAG}
+\end{quote}
+
+The deployed RAG is available at \url{https://scholar-rag.vercel.app}. Model/index artifacts are stored at \url{https://drive.google.com/drive/folders/1t34rEBA0vsvD603WdJCzG0F_diz5GTKD?usp=sharing}. The package contains benchmarking notebooks, the OpenArXiv FAISS deployment notebook, prompt templates, result tables, and demo instructions.
+
+\subsection{Original Code Source}
+
+The project code was written using public libraries and datasets:
+
+\begin{itemize}
+    \item OpenArXiv dataset: \url{https://huggingface.co/datasets/open-index/open-arxiv}
+    \item EmbeddingGemma model: \url{https://huggingface.co/google/embeddinggemma-300m}
+    \item FAISS vector search library: \url{https://github.com/facebookresearch/faiss}
+    \item Hugging Face Datasets and Transformers libraries
+    \item SciFact benchmark in BEIR/MTEB format
+\end{itemize}
+
+
+\section{Learning Outcomes}
+
+This project taught us both research and engineering lessons.
+
+\paragraph{First-stage retrieval is the most important part of RAG.}
+We expected rerankers to always improve the system, but the experiments showed that \texttt{EmbeddingGemma} with a fact-checking prompt was already very strong. Pure reranking often hurt because it replaced a useful retriever score with a less aligned score.
+
+\paragraph{Embedding prompts matter.}
+Before this project, we mostly thought of prompting as something for LLM generation. We learned that query prompts also change embedding behavior. The fact-checking prompt helped the model retrieve evidence-bearing papers instead of only papers with similar keywords.
+
+\paragraph{Scaling changes the problem.}
+SciFact has only a few thousand abstracts, but OpenArXiv has millions of papers. At that scale, engineering details become central: batching, GPU memory, FAISS index type, vector compression, metadata lookup, checkpointing, and resume logic.
+
+\paragraph{Metadata is also a key factor for retrieval.}
+FAISS can return nearest vector IDs, but the user needs titles, abstracts, dates, categories, and URLs. We learned that a real paper-search system needs a clean connection between vector search and metadata storage.
+
+\paragraph{Scientific RAG must handle uncertainty.}
+For scientific search, unsupported answers are dangerous. We learned to design the RAG prompt so the model answers only from retrieved papers and says when the evidence is insufficient.
+
+\paragraph{Quality and latency must be balanced.}
+The highest-scoring method is not always the best deployed method. Some rerankers gave small quality gains but were too slow for an interactive app. This helped us evaluate models as complete systems, not just as leaderboard scores.
+
+\section{Contributions}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{p{0.28\linewidth}p{0.62\linewidth}}
+\toprule
+Team Member & Contributions \\
+\midrule
+Wasiq Malik & Led the research and experimental work: dataset investigation, SciFact benchmarking, bi-encoder model comparison, reranker experiments, score-fusion sweeps, reranker fine-tuning, result analysis, plots, and experiment write-up. \\
+Krishan Chopra & Led Code Development and production deployment: OpenArXiv dataset indexing, FAISS/SQLite deployment pipeline, retrieval/RAG demo flow, application integration, deployment architecture, and production-system write-up. \\
+\bottomrule
+\end{tabular}
+\caption{Team member contributions.}
+\label{tab:contributions}
+\end{table}
+
+Overall, Wasiq focused on research experiments and evaluation, while Krishan focused on deployment and application productionization. Both members contributed to project direction, debugging, interpretation, and final presentation.
+\end{document}
